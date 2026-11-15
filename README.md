@@ -63,8 +63,8 @@ m4 preset list|rock|pop|dance|hip-hop|classical|movie|jazz|neutral
 m4 bass-boost on|off
 m4 touch-lock on|off
 m4 get battery
-m4 connect                      # подключить наушники через IOBluetooth
-m4 disconnect                   # отключить наушники от этого Mac
+m4 connect                      # подключить через BlueZ / IOBluetooth
+m4 disconnect                   # отключить через BlueZ / IOBluetooth
 m4 audio                        # профиль, кодек, частота (только Linux)
 m4 audio a2dp-sink              # вернуть A2DP после HFP на Linux
 m4 doctor                       # диагностика через демон

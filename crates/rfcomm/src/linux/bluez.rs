@@ -1,5 +1,5 @@
 use zbus::blocking::fdo::ObjectManagerProxy;
-use zbus::blocking::Connection;
+use zbus::blocking::{Connection, Proxy};
 
 #[derive(Debug, Clone)]
 pub struct Device {
@@ -57,4 +57,32 @@ pub fn find_headset() -> Result<Option<Device>, zbus::Error> {
     Ok(devices()?
         .into_iter()
         .find(|device| device.name.to_uppercase().contains("MOMENTUM 4")))
+}
+
+pub fn set_headset_connected(connect: bool) -> Result<(), zbus::Error> {
+    let headset = find_headset()?.ok_or_else(|| {
+        zbus::Error::Failure("no paired MOMENTUM 4 found on this adapter".to_owned())
+    })?;
+    if headset.connected == connect {
+        return Ok(());
+    }
+
+    let path = format!(
+        "/org/bluez/{}/dev_{}",
+        headset.adapter,
+        headset.address.replace(':', "_")
+    );
+    let connection = Connection::system()?;
+    let device = Proxy::new(&connection, "org.bluez", path, "org.bluez.Device1")?;
+    let method = if connect { "Connect" } else { "Disconnect" };
+    let result: Result<(), zbus::Error> = device.call(method, &());
+    match result {
+        Err(zbus::Error::MethodError(name, _, _))
+            if (connect && name.as_str() == "org.bluez.Error.AlreadyConnected")
+                || (!connect && name.as_str() == "org.bluez.Error.NotConnected") =>
+        {
+            Ok(())
+        }
+        other => other,
+    }
 }

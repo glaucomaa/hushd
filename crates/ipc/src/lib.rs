@@ -106,6 +106,46 @@ pub struct Status {
     pub address: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerKey {
+    pub name: String,
+    pub own: bool,
+}
+
+pub fn peer_key(status: &Status, index: u8) -> Option<PeerKey> {
+    let device = status
+        .info
+        .paired
+        .iter()
+        .find(|device| device.index == index)?;
+    Some(PeerKey {
+        name: device.name.clone(),
+        own: status.info.own_index == Some(index),
+    })
+}
+
+pub fn find_peer(status: &Status, key: &PeerKey) -> Option<u8> {
+    status
+        .info
+        .paired
+        .iter()
+        .find(|device| {
+            device.name == key.name && (status.info.own_index == Some(device.index)) == key.own
+        })
+        .map(|device| device.index)
+}
+
+pub fn peer_request(status: &Status, index: u8, connect: bool) -> Option<Request> {
+    let key = peer_key(status, index)?;
+    Some(if key.own {
+        Request::HeadsetConnect { connect }
+    } else if connect {
+        Request::ConnectPeer { index }
+    } else {
+        Request::DisconnectPeer { index }
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 #[allow(clippy::large_enum_variant)]
@@ -285,6 +325,43 @@ mod tests {
             .validate()
             .is_ok());
         }
+    }
+
+    #[test]
+    fn peer_identity_survives_index_reordering() {
+        let device = |index: u8, name: &str, connected: bool| m4::PairedEntry {
+            index,
+            name: name.to_owned(),
+            connected,
+            priority: 0,
+        };
+        let mut status = Status::default();
+        status.info.own_index = Some(0);
+        status.info.paired = vec![
+            device(0, "amocualg", true),
+            device(1, "sc-mac", true),
+            device(2, "amocualg", false),
+        ];
+        let mac = peer_key(&status, 1).unwrap();
+        let phone = peer_key(&status, 2).unwrap();
+
+        status.info.own_index = Some(1);
+        status.info.paired = vec![
+            device(0, "sc-mac", true),
+            device(1, "amocualg", true),
+            device(2, "amocualg", false),
+        ];
+
+        assert_eq!(find_peer(&status, &mac), Some(0));
+        assert_eq!(find_peer(&status, &phone), Some(2));
+        assert_eq!(
+            peer_request(&status, 0, false),
+            Some(Request::DisconnectPeer { index: 0 })
+        );
+        assert_eq!(
+            peer_request(&status, 1, false),
+            Some(Request::HeadsetConnect { connect: false })
+        );
     }
 
     #[test]

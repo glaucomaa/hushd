@@ -36,7 +36,7 @@ enum Command {
     Waybar,
     /// Connect the paired headset through the system Bluetooth backend
     Connect,
-    /// Disconnect the headset from this Mac
+    /// Disconnect the headset through the system Bluetooth backend
     Disconnect,
     /// Noise control: adaptive, custom, off or cycle
     Anc { mode: String },

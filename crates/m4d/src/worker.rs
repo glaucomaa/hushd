@@ -14,6 +14,7 @@ const DEFAULT_TRACK_EVERY: Duration = Duration::from_secs(2);
 #[cfg(not(target_os = "linux"))]
 const DEFAULT_TRACK_EVERY: Duration = Duration::from_secs(5);
 const POLL_EVERY: Duration = Duration::from_millis(100);
+const SYSTEM_CONNECTION_EVERY: Duration = Duration::from_secs(1);
 const MAX_BACKOFF: Duration = Duration::from_secs(15);
 const LINK_LOSS_RETRY_DELAY: Duration = Duration::from_secs(3);
 
@@ -61,33 +62,55 @@ impl Worker {
     where
         F: Fn() -> Result<Session, String> + Send + Sync + 'static,
     {
+        self.run_with_connection_probe(try_connect, headset_connection, system_headset_connected);
+    }
+
+    #[cfg(test)]
+    fn run_with_connect_and_control<F, C>(&mut self, try_connect: F, headset_control: C)
+    where
+        F: Fn() -> Result<Session, String> + Send + Sync + 'static,
+        C: Fn(bool) -> Result<(), String>,
+    {
+        self.run_with_connection_probe(try_connect, headset_control, || Ok(true));
+    }
+
+    fn run_with_connection_probe<F, C, P>(
+        &mut self,
+        try_connect: F,
+        headset_control: C,
+        system_connected: P,
+    ) where
+        F: Fn() -> Result<Session, String> + Send + Sync + 'static,
+        C: Fn(bool) -> Result<(), String>,
+        P: Fn() -> Result<bool, String>,
+    {
         let try_connect = Arc::new(try_connect);
         let audio_every = interval_from_env("M4_AUDIO_INTERVAL", DEFAULT_AUDIO_EVERY);
         let track_every = interval_from_env("M4_TRACK_INTERVAL", DEFAULT_TRACK_EVERY);
         let mut session: Option<Session> = None;
         let mut connecting: Option<Receiver<Result<Session, String>>> = None;
         let mut reconnect_at = None;
-        let mut manually_disconnected = false;
         let mut backoff = Duration::from_secs(1);
         let now = Instant::now();
         let mut last_refresh = now;
         let mut last_audio = now.checked_sub(audio_every).unwrap_or(now);
         let mut last_track = now.checked_sub(track_every).unwrap_or(now);
+        let mut last_system_connection = now.checked_sub(SYSTEM_CONNECTION_EVERY).unwrap_or(now);
         let mut dirty = false;
 
         loop {
             let mut stop = false;
             while let Ok(Command::Request { request, reply }) = self.rx.try_recv() {
-                if let Request::HeadsetConnect { connect } = &request {
-                    manually_disconnected = !connect;
-                    reconnect_at = None;
-                    if *connect {
+                let (should_stop, peer_change, connection_change) =
+                    self.handle_command(&mut session, request, reply, &headset_control);
+                if let Some(connect) = connection_change {
+                    reconnect_at = (!connect).then(|| Instant::now() + LINK_LOSS_RETRY_DELAY);
+                    if connect {
                         backoff = Duration::from_secs(1);
                     } else {
                         connecting = None;
                     }
                 }
-                let (should_stop, peer_change) = self.handle_command(&mut session, request, reply);
                 stop = should_stop;
                 if peer_change {
                     dirty = true;
@@ -100,10 +123,20 @@ impl Worker {
                 return;
             }
 
+            if session.is_some() && last_system_connection.elapsed() >= SYSTEM_CONNECTION_EVERY {
+                last_system_connection = Instant::now();
+                if matches!(system_connected(), Ok(false)) {
+                    m4d_log!("m4d: system Bluetooth disconnected");
+                    session = None;
+                    reconnect_at = Some(Instant::now() + LINK_LOSS_RETRY_DELAY);
+                    self.disconnect("system Bluetooth disconnected");
+                    continue;
+                }
+            }
+
             match session.as_mut() {
                 None => {
-                    if !manually_disconnected
-                        && connecting.is_none()
+                    if connecting.is_none()
                         && reconnect_at.is_none_or(|deadline| Instant::now() >= deadline)
                     {
                         self.set_error("connecting to MOMENTUM 4");
@@ -159,17 +192,17 @@ impl Worker {
                     }
                     match self.rx.recv_timeout(POLL_EVERY) {
                         Ok(Command::Request { request, reply }) => {
-                            if let Request::HeadsetConnect { connect } = &request {
-                                manually_disconnected = !connect;
-                                reconnect_at = None;
-                                if *connect {
+                            let (stop, peer_change, connection_change) =
+                                self.handle_command(&mut session, request, reply, &headset_control);
+                            if let Some(connect) = connection_change {
+                                reconnect_at =
+                                    (!connect).then(|| Instant::now() + LINK_LOSS_RETRY_DELAY);
+                                if connect {
                                     backoff = Duration::from_secs(1);
                                 } else {
                                     connecting = None;
                                 }
                             }
-                            let (stop, peer_change) =
-                                self.handle_command(&mut session, request, reply);
                             if peer_change {
                                 dirty = true;
                             }
@@ -260,10 +293,11 @@ impl Worker {
         session: &mut Option<Session>,
         request: Request,
         reply: Sender<Response>,
-    ) -> (bool, bool) {
+        headset_control: &dyn Fn(bool) -> Result<(), String>,
+    ) -> (bool, bool, Option<bool>) {
         if matches!(request, Request::Shutdown) {
             let _ = reply.send(Response::Ok);
-            return (true, false);
+            return (true, false, None);
         }
         let peer_change = matches!(
             request,
@@ -272,15 +306,21 @@ impl Worker {
                 | Request::HeadsetConnect { .. }
         );
         let optimistic = request.clone();
-        let response = self.answer(session, request);
+        let response = self.answer(session, request, headset_control);
+        let connection_change = successful_headset_connection(&optimistic, &response);
         if matches!(response, Response::Ok) {
             self.apply_local(&optimistic);
         }
         let _ = reply.send(response);
-        (false, peer_change)
+        (false, peer_change, connection_change)
     }
 
-    fn answer(&self, session: &mut Option<Session>, request: Request) -> Response {
+    fn answer(
+        &self,
+        session: &mut Option<Session>,
+        request: Request,
+        headset_control: &dyn Fn(bool) -> Result<(), String>,
+    ) -> Response {
         if let Err(message) = request
             .validate()
             .and_then(|()| validate_peer(&self.snapshot(), &request))
@@ -293,7 +333,7 @@ impl Worker {
             Request::Audio { set_profile } => {
                 audio_state(set_profile, self.snapshot().address.as_deref())
             }
-            Request::HeadsetConnect { connect } => match headset_connection(connect) {
+            Request::HeadsetConnect { connect } => match headset_control(connect) {
                 Ok(()) => {
                     if !connect {
                         *session = None;
@@ -469,6 +509,7 @@ impl Worker {
             slot.connected = false;
             slot.channel = None;
             slot.error = Some(reason.to_owned());
+            slot.audio = None;
         }
     }
 
@@ -482,18 +523,35 @@ impl Worker {
     }
 }
 
+fn successful_headset_connection(request: &Request, response: &Response) -> Option<bool> {
+    match (request, response) {
+        (Request::HeadsetConnect { connect }, Response::Ok) => Some(*connect),
+        _ => None,
+    }
+}
+
 fn validate_peer(status: &Status, request: &Request) -> Result<(), String> {
     let index = match request {
         Request::ConnectPeer { index } | Request::DisconnectPeer { index } => *index,
         _ => return Ok(()),
     };
-    if status.info.paired.iter().any(|peer| peer.index == index) {
-        Ok(())
-    } else {
-        Err(format!(
+    let Some(device) = status.info.paired.iter().find(|peer| peer.index == index) else {
+        return Err(format!(
             "paired device index {index} is not in the current snapshot"
-        ))
+        ));
+    };
+    let connected = status
+        .info
+        .paired
+        .iter()
+        .filter(|peer| peer.connected)
+        .count();
+    if matches!(request, Request::ConnectPeer { .. }) && !device.connected && connected >= 2 {
+        return Err(
+            "both multipoint slots are occupied; disconnect a connected host first".to_owned(),
+        );
     }
+    Ok(())
 }
 
 fn interval_from_env(name: &str, default: Duration) -> Duration {
@@ -601,14 +659,27 @@ fn set_anc(session: &mut Session, mode: AncMode) -> Result<(), m4::Error> {
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn headset_connection(connect: bool) -> Result<(), String> {
     rfcomm::discovery::set_headset_connected(connect).map_err(|error| error.to_string())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn headset_connection(_connect: bool) -> Result<(), String> {
-    Err("system headset connection control is currently macOS-only".to_owned())
+    Err("system headset connection control is unavailable on this platform".to_owned())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+fn system_headset_connected() -> Result<bool, String> {
+    let device = rfcomm::discovery::find_headset()
+        .map_err(|error| error.to_string())?
+        .ok_or("no paired MOMENTUM 4 found")?;
+    Ok(device.connected)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn system_headset_connected() -> Result<bool, String> {
+    Ok(true)
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
@@ -657,6 +728,48 @@ mod tests {
         assert!(validate_peer(&status, &Request::ConnectPeer { index: 2 }).is_ok());
         assert!(validate_peer(&status, &Request::DisconnectPeer { index: 3 }).is_err());
         assert!(validate_peer(&status, &Request::Status).is_ok());
+    }
+
+    #[test]
+    fn connect_peer_rejects_a_third_active_host() {
+        let mut status = Status::default();
+        for (index, connected) in [(0, true), (1, true), (2, false)] {
+            status.info.paired.push(m4::PairedEntry {
+                index,
+                name: format!("device {index}"),
+                connected,
+                priority: 0,
+            });
+        }
+
+        let error = validate_peer(&status, &Request::ConnectPeer { index: 2 })
+            .expect_err("third active host must be rejected");
+        assert!(error.contains("both multipoint slots"));
+        assert!(validate_peer(&status, &Request::DisconnectPeer { index: 0 }).is_ok());
+        assert!(validate_peer(&status, &Request::ConnectPeer { index: 0 }).is_ok());
+    }
+
+    #[test]
+    fn headset_connection_state_changes_only_after_success() {
+        let disconnect = Request::HeadsetConnect { connect: false };
+        let failure = Response::Error {
+            message: "BlueZ rejected disconnect".to_owned(),
+        };
+        assert_eq!(successful_headset_connection(&disconnect, &failure), None);
+        assert_eq!(
+            successful_headset_connection(&disconnect, &Response::Ok),
+            Some(false)
+        );
+
+        let connect = Request::HeadsetConnect { connect: true };
+        assert_eq!(
+            successful_headset_connection(&connect, &Response::Ok),
+            Some(true)
+        );
+        assert_eq!(
+            successful_headset_connection(&Request::Status, &Response::Ok),
+            None
+        );
     }
 
     #[test]
@@ -733,6 +846,141 @@ mod tests {
             }
             other => panic!("unexpected response: {other:?}"),
         }
+
+        let (reply, response) = std::sync::mpsc::channel();
+        commands
+            .send(Command::Request {
+                request: Request::Shutdown,
+                reply,
+            })
+            .unwrap();
+        assert_eq!(
+            response.recv_timeout(Duration::from_millis(250)).unwrap(),
+            Response::Ok
+        );
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn external_reconnect_is_not_blocked_after_manual_disconnect() {
+        let (commands, rx) = std::sync::mpsc::channel();
+        let state = Arc::new(RwLock::new(Status::default()));
+        let subscribers = Arc::new(Mutex::new(Vec::new()));
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let worker_state = Arc::clone(&state);
+        let worker_attempts = Arc::clone(&attempts);
+        let handle = std::thread::spawn(move || {
+            Worker {
+                rx,
+                state: worker_state,
+                subscribers,
+            }
+            .run_with_connect_and_control(
+                move || {
+                    worker_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Err("test headset is offline".to_owned())
+                },
+                |_| Ok(()),
+            );
+        });
+
+        let (reply, response) = std::sync::mpsc::channel();
+        commands
+            .send(Command::Request {
+                request: Request::HeadsetConnect { connect: false },
+                reply,
+            })
+            .unwrap();
+        assert_eq!(
+            response.recv_timeout(Duration::from_millis(250)).unwrap(),
+            Response::Ok
+        );
+        let baseline = attempts.load(std::sync::atomic::Ordering::SeqCst);
+        let deadline = Instant::now() + LINK_LOSS_RETRY_DELAY + Duration::from_secs(2);
+        while attempts.load(std::sync::atomic::Ordering::SeqCst) <= baseline {
+            assert!(
+                Instant::now() < deadline,
+                "manual disconnect permanently blocked connection attempts"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
+
+        let (reply, response) = std::sync::mpsc::channel();
+        commands
+            .send(Command::Request {
+                request: Request::Shutdown,
+                reply,
+            })
+            .unwrap();
+        assert_eq!(
+            response.recv_timeout(Duration::from_millis(250)).unwrap(),
+            Response::Ok
+        );
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn system_disconnect_closes_the_gaia_session() {
+        struct IdleTransport;
+
+        impl m4::Transport for IdleTransport {
+            fn send(&self, _bytes: &[u8]) -> std::io::Result<()> {
+                Ok(())
+            }
+
+            fn recv(
+                &self,
+                _buffer: &mut [u8],
+                timeout: Duration,
+            ) -> std::io::Result<Option<usize>> {
+                if timeout == Duration::ZERO || timeout <= POLL_EVERY {
+                    Ok(None)
+                } else {
+                    Ok(Some(0))
+                }
+            }
+        }
+
+        let (commands, rx) = std::sync::mpsc::channel();
+        let state = Arc::new(RwLock::new(Status::default()));
+        let subscribers = Arc::new(Mutex::new(Vec::new()));
+        let system_connected = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let worker_state = Arc::clone(&state);
+        let worker_connected = Arc::clone(&system_connected);
+        let handle = std::thread::spawn(move || {
+            Worker {
+                rx,
+                state: worker_state,
+                subscribers,
+            }
+            .run_with_connection_probe(
+                || Ok(Session::from_transport(Box::new(IdleTransport), 1)),
+                |_| Ok(()),
+                move || Ok(worker_connected.load(std::sync::atomic::Ordering::SeqCst)),
+            );
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while !state.read().unwrap().connected {
+            assert!(Instant::now() < deadline, "worker never connected");
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        state.write().unwrap().audio = Some(ipc::AudioState::default());
+        system_connected.store(false, std::sync::atomic::Ordering::SeqCst);
+
+        while state.read().unwrap().connected {
+            assert!(
+                Instant::now() < deadline,
+                "system disconnect left the GAIA session active"
+            );
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let status = state.read().unwrap().clone();
+        assert_eq!(
+            status.error.as_deref(),
+            Some("system Bluetooth disconnected")
+        );
+        assert_eq!(status.audio, None);
 
         let (reply, response) = std::sync::mpsc::channel();
         commands

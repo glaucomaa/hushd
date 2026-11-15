@@ -1,5 +1,3 @@
-#![cfg(target_os = "linux")]
-
 use std::io;
 use std::os::unix::io::RawFd;
 use std::time::{Duration, Instant};
@@ -170,8 +168,14 @@ impl Link {
                 return Ok(None);
             }
             // SAFETY: the buffer is valid for `buf.len()` bytes.
-            let rc =
-                unsafe { libc::recv(self.fd, buf.as_mut_ptr() as *mut libc::c_void, buf.len(), 0) };
+            let rc = unsafe {
+                libc::recv(
+                    self.fd,
+                    buf.as_mut_ptr() as *mut libc::c_void,
+                    buf.len(),
+                    libc::MSG_DONTWAIT,
+                )
+            };
             if rc < 0 {
                 let err = io::Error::last_os_error();
                 if err.kind() == io::ErrorKind::Interrupted {

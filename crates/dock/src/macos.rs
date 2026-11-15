@@ -2,7 +2,7 @@ use std::cell::{Cell, OnceCell, RefCell};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use ipc::{AncMode, Event, Request, Response, Status};
+use ipc::{find_peer, peer_key, peer_request, AncMode, Event, Request, Response, Status};
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObjectProtocol, ProtocolObject, Sel};
 use objc2::{define_class, msg_send, sel, DefinedClass, MainThreadOnly};
@@ -261,16 +261,12 @@ define_class!(
 
         #[unsafe(method(connectPeer:))]
         fn connect_peer(&self, _sender: &AnyObject) {
-            if let Some(index) = self.selected_peer() {
-                self.request(Request::ConnectPeer { index });
-            }
+            self.peer_action(true);
         }
 
         #[unsafe(method(disconnectPeer:))]
         fn disconnect_peer(&self, _sender: &AnyObject) {
-            if let Some(index) = self.selected_peer() {
-                self.request(Request::DisconnectPeer { index });
-            }
+            self.peer_action(false);
         }
 
         #[unsafe(method(setBassBoost:))]
@@ -365,6 +361,22 @@ impl Delegate {
             .get()
             .and_then(|popup| popup.selectedItem())
             .map(|item| item.tag() as u8)
+    }
+
+    fn selected_peer_key(&self) -> Option<ipc::PeerKey> {
+        let index = self.selected_peer()?;
+        peer_key(self.ivars().last_status.borrow().as_ref()?, index)
+    }
+
+    fn peer_action(&self, connect: bool) {
+        let request = {
+            let status = self.ivars().last_status.borrow();
+            self.selected_peer()
+                .and_then(|index| peer_request(status.as_ref()?, index, connect))
+        };
+        if let Some(request) = request {
+            self.request(request);
+        }
     }
 
     fn install_window(&self, mtm: MainThreadMarker) -> Retained<NSWindow> {
@@ -880,6 +892,7 @@ impl Delegate {
     }
 
     fn update(&self, status: &Status) {
+        let previous_peer = self.selected_peer_key();
         self.ivars().last_status.replace(Some(status.clone()));
         self.update_status_item(status);
         self.update_controls(status.connected);
@@ -892,11 +905,11 @@ impl Delegate {
         };
         status_label.setTextColor(Some(&status_color));
 
-        self.update_window(status);
+        self.update_window(status, previous_peer.as_ref());
         self.update_popover(status);
     }
 
-    fn update_window(&self, status: &Status) {
+    fn update_window(&self, status: &Status, previous_peer: Option<&ipc::PeerKey>) {
         let status_label = self.ivars().status.get().unwrap();
         if !status.connected {
             status_label.setStringValue(&NSString::from_str(
@@ -1055,8 +1068,6 @@ impl Delegate {
             .unwrap()
             .setStringValue(&NSString::from_str(&paired_summary_text(status)));
         if let Some(peer) = self.ivars().peer.get() {
-            // Preserve the selected device across refreshes.
-            let previous = peer.selectedItem().map(|item| item.tag());
             peer.removeAllItems();
             for device in &status.info.paired {
                 peer.addItemWithTitle(&NSString::from_str(&format!(
@@ -1074,26 +1085,16 @@ impl Delegate {
                     item.setTag(device.index.into());
                 }
             }
-            let preferred = previous
-                .filter(|tag| {
-                    status
-                        .info
-                        .paired
-                        .iter()
-                        .any(|device| isize::from(device.index) == *tag)
-                })
+            let preferred = previous_peer
+                .and_then(|key| find_peer(status, key))
                 .or_else(|| {
-                    status
-                        .info
-                        .own_index
-                        .and_then(|index| {
-                            status
-                                .info
-                                .paired
-                                .iter()
-                                .position(|device| device.index == index)
-                        })
-                        .map(|row| status.info.paired[row].index.into())
+                    status.info.own_index.filter(|index| {
+                        status
+                            .info
+                            .paired
+                            .iter()
+                            .any(|device| device.index == *index)
+                    })
                 })
                 .or_else(|| {
                     status
@@ -1101,14 +1102,14 @@ impl Delegate {
                         .paired
                         .iter()
                         .find(|device| device.connected)
-                        .map(|device| device.index.into())
+                        .map(|device| device.index)
                 });
             if let Some(tag) = preferred {
                 if let Some(row) = status
                     .info
                     .paired
                     .iter()
-                    .position(|device| isize::from(device.index) == tag)
+                    .position(|device| device.index == tag)
                 {
                     peer.selectItemAtIndex(row as isize);
                 }

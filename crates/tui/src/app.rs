@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use ratatui::layout::{Position, Rect};
 
-use ipc::{AncMode, Event, Request, Response, Status};
+use ipc::{find_peer, peer_key, peer_request, AncMode, Event, PeerKey, Request, Response, Status};
 
 use crate::Backend;
 
@@ -102,6 +102,7 @@ pub struct Confirmation {
     pub action: DeviceAction,
     pub index: u8,
     pub name: String,
+    pub own: bool,
 }
 
 const DEBOUNCE: Duration = Duration::from_millis(80);
@@ -173,9 +174,8 @@ impl App {
     pub fn refresh(&mut self, backend: &mut impl Backend) {
         match backend.status() {
             Ok(status) => {
-                self.status = status;
+                self.update_status(status);
                 self.daemon_error = None;
-                self.clamp_selection();
             }
             Err(error) => {
                 self.status.connected = false;
@@ -194,10 +194,7 @@ impl App {
                 self.status.connected = false;
                 self.push_log(format!("disconnected: {reason}"));
             }
-            Event::State { status } => {
-                self.status = status;
-                self.clamp_selection();
-            }
+            Event::State { status } => self.update_status(status),
             Event::Notification { command, payload } => {
                 let payload = payload
                     .iter()
@@ -207,6 +204,33 @@ impl App {
                 self.push_log(format!("{command:#06x} {payload}"));
             }
         }
+    }
+
+    fn update_status(&mut self, status: Status) {
+        let selected = self.selected_peer_key();
+        self.status = status;
+        if let Some(key) = selected {
+            if let Some(index) = find_peer(&self.status, &key) {
+                if let Some(row) = self
+                    .status
+                    .info
+                    .paired
+                    .iter()
+                    .position(|device| device.index == index)
+                {
+                    self.selected = row;
+                }
+            }
+        }
+        self.clamp_selection();
+    }
+
+    fn selected_peer_key(&self) -> Option<PeerKey> {
+        if self.screen != Screen::Devices {
+            return None;
+        }
+        let device = self.status.info.paired.get(self.selected)?;
+        peer_key(&self.status, device.index)
     }
 
     pub fn handle_key(&mut self, key: Key, backend: &mut impl Backend) {
@@ -461,6 +485,7 @@ impl App {
                 action,
                 index: device.index,
                 name: device.name.clone(),
+                own: self.status.info.own_index == Some(device.index),
             });
         }
     }
@@ -469,15 +494,18 @@ impl App {
         let Some(confirmation) = self.confirmation.take() else {
             return;
         };
-        let request = match confirmation.action {
-            DeviceAction::Connect => Request::ConnectPeer {
-                index: confirmation.index,
-            },
-            DeviceAction::Disconnect => Request::DisconnectPeer {
-                index: confirmation.index,
-            },
+        let key = PeerKey {
+            name: confirmation.name,
+            own: confirmation.own,
         };
-        self.send(request, backend);
+        let Some(index) = find_peer(&self.status, &key) else {
+            self.message = Some("device list changed; select the device again".to_owned());
+            return;
+        };
+        let connect = matches!(confirmation.action, DeviceAction::Connect);
+        if let Some(request) = peer_request(&self.status, index, connect) {
+            self.send(request, backend);
+        }
     }
 
     /// Sliders feel instant because the value moves locally first; the write is
@@ -790,6 +818,77 @@ mod tests {
 
         app.handle_mouse(Mouse::Click { column: 5, row: 1 }, &mut backend);
         assert_eq!(app.selected, 1);
+    }
+
+    #[test]
+    fn paired_selection_and_confirmation_follow_device_across_reordering() {
+        let (mut app, mut backend) = app_and_backend();
+        let device = |index: u8, name: &str| m4::PairedEntry {
+            index,
+            name: name.to_owned(),
+            connected: true,
+            priority: 0,
+        };
+        let mut status = backend.status().unwrap();
+        status.info.own_index = Some(0);
+        status.info.paired = vec![device(0, "linux"), device(1, "mac")];
+        backend.set_status(status.clone());
+        app.refresh(&mut backend);
+        app.screen = Screen::Devices;
+        app.selected = 1;
+        app.confirm_device(DeviceAction::Disconnect);
+
+        status.info.own_index = Some(1);
+        status.info.paired = vec![device(0, "mac"), device(1, "linux")];
+        backend.set_status(status.clone());
+        app.apply_event(Event::State { status });
+        assert_eq!(app.selected, 0);
+
+        app.confirm(&mut backend);
+        assert_eq!(
+            backend.requests.last(),
+            Some(&Request::DisconnectPeer { index: 0 })
+        );
+    }
+
+    #[test]
+    fn own_device_actions_use_the_system_bluetooth_backend() {
+        let (mut app, mut backend) = app_and_backend();
+        let mut status = backend.status().expect("mock status");
+        status.info.own_index = Some(1);
+        status.info.paired = (1..=2)
+            .map(|index| m4::PairedEntry {
+                index,
+                name: "device".to_owned(),
+                connected: true,
+                priority: 0,
+            })
+            .collect();
+        backend.set_status(status);
+        app.refresh(&mut backend);
+
+        for (index, action, expected) in [
+            (
+                1,
+                DeviceAction::Disconnect,
+                Request::HeadsetConnect { connect: false },
+            ),
+            (2, DeviceAction::Connect, Request::ConnectPeer { index: 2 }),
+            (
+                1,
+                DeviceAction::Connect,
+                Request::HeadsetConnect { connect: true },
+            ),
+        ] {
+            app.confirmation = Some(Confirmation {
+                action,
+                index,
+                name: "device".to_owned(),
+                own: index == 1,
+            });
+            app.confirm(&mut backend);
+            assert_eq!(backend.requests.last(), Some(&expected));
+        }
     }
 
     #[test]

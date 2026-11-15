@@ -1,3 +1,5 @@
+#![cfg_attr(not(any(target_os = "macos", test)), allow(dead_code))]
+
 use ipc::Status;
 
 fn anc_selection(info: &m4::Info) -> usize {
