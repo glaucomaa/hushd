@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template: replace __M4D__ with the absolute path to the binary, e.g.
+     /Users/you/.local/bin/m4d, then copy to ~/Library/LaunchAgents/dev.m4.m4d.plist
+     and run: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.m4.m4d.plist -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>dev.m4.m4d</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__M4D__</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <dict>
+        <key>SuccessfulExit</key>
+        <false/>
+    </dict>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardErrorPath</key>
+    <string>__LOG__</string>
+</dict>
+</plist>

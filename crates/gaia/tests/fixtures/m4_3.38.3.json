@@ -1,0 +1,253 @@
+{
+  "address": "AA:BB:CC:DD:EE:FF",
+  "firmware": "3.38.3",
+  "model_id": "M4AEBT Graphite",
+  "exchanges": [
+    {
+      "request": "ff 03 00 00 04 95 12 01",
+      "response": "00 03 00 26 00 03",
+      "command": "0x1201",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 12 06",
+      "response": "4d 34 41 45 42 54 20 47 72 61 70 68 69 74 65 00",
+      "command": "0x1206",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 12 00",
+      "response": "00 04 00 00",
+      "command": "0x1200",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 12 02",
+      "response": "03 26 03 00 00 00",
+      "command": "0x1202",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 00 1d 00 03",
+      "response": "30 30 30 30 30 30 30 30 30 30 30 30",
+      "command": "0x0003",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 00 1d 00 00",
+      "response": "03 01",
+      "command": "0x0000",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 06 03",
+      "response": "64",
+      "command": "0x0603",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 06 02",
+      "response": "00 00",
+      "command": "0x0602",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 06 01 00",
+      "response": "00 03 84",
+      "command": "0x0601",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 06 01 01",
+      "response": "05",
+      "command": "0x0601",
+      "kind": "ERR"
+    },
+    {
+      "request": "ff 03 00 00 04 95 1a 01",
+      "response": "01 00 02 00 03 00",
+      "command": "0x1A01",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 1a 03",
+      "response": "45",
+      "command": "0x1A03",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 1a 05",
+      "response": "01",
+      "command": "0x1A05",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 00",
+      "response": "ff",
+      "command": "0x0800",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 1a",
+      "response": "00 00 00 00",
+      "command": "0x081A",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 04",
+      "response": "00 01",
+      "command": "0x0804",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 02",
+      "response": "02",
+      "command": "0x0802",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 07",
+      "response": "00",
+      "command": "0x0807",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 06",
+      "response": "02",
+      "command": "0x0806",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 0d",
+      "response": "01",
+      "command": "0x080D",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 0b",
+      "response": "00",
+      "command": "0x080B",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 08 15",
+      "response": "01",
+      "command": "0x0815",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 04 01",
+      "response": "01",
+      "command": "0x0401",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 04 02",
+      "response": "02",
+      "command": "0x0402",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 04 06",
+      "response": "00",
+      "command": "0x0406",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 16 07",
+      "response": "00",
+      "command": "0x1607",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 18 01",
+      "response": "01",
+      "command": "0x1801",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 10 00",
+      "response": "05 c4 3c 00 00",
+      "command": "0x1000",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 10 02 00",
+      "response": "00",
+      "command": "0x1002",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 10 02 01",
+      "response": "14",
+      "command": "0x1002",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 10 02 02",
+      "response": "19",
+      "command": "0x1002",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 10 02 03",
+      "response": "0f",
+      "command": "0x1002",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 10 02 04",
+      "response": "ec",
+      "command": "0x1002",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 10 09",
+      "response": "00",
+      "command": "0x1009",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 14 00",
+      "response": "00 04",
+      "command": "0x1400",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 14 01 00",
+      "response": "00 01 00 6c 61 70 74 6f 70 00",
+      "command": "0x1401",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 14 01 01",
+      "response": "01 00 01 6c 61 70 74 6f 70 00",
+      "command": "0x1401",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 14 01 02",
+      "response": "02 02 00 77 69 6e 64 6f 77 73 00",
+      "command": "0x1401",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 01 04 95 14 01 03",
+      "response": "03 03 00 70 68 6f 6e 65 00",
+      "command": "0x1401",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 14 07",
+      "response": "01",
+      "command": "0x1407",
+      "kind": "RSP"
+    },
+    {
+      "request": "ff 03 00 00 04 95 14 09",
+      "response": "01",
+      "command": "0x1409",
+      "kind": "RSP"
+    }
+  ]
+}

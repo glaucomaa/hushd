@@ -1,0 +1,143 @@
+[
+  {
+    "index": 273,
+    "name": "bluez_card.AA_BB_CC_DD_EE_FF",
+    "driver": "module-bluez5-device.c",
+    "owner_module": null,
+    "properties": {
+      "device.api": "bluez5",
+      "device.bus": "bluetooth",
+      "media.class": "Audio/Device",
+      "device.name": "bluez_card.AA_BB_CC_DD_EE_FF",
+      "device.description": "MOMENTUM 4",
+      "device.alias": "MOMENTUM 4",
+      "device.form_factor": "headset",
+      "device.icon_name": "audio-headset-bluetooth",
+      "device.string": "AA:BB:CC:DD:EE:FF",
+      "api.bluez5.icon": "audio-headset",
+      "api.bluez5.path": "/org/bluez/hci0/dev_AA_BB_CC_DD_EE_FF",
+      "api.bluez5.address": "AA:BB:CC:DD:EE:FF",
+      "api.bluez5.device": "",
+      "api.bluez5.class": "0x240404",
+      "api.bluez5.connection": "connected",
+      "bluez5.profile": "headset-head-unit",
+      "spa.object.id": "3",
+      "bluez5.auto-connect": "[ a2dp_sink a2dp_source ]",
+      "factory.id": "15",
+      "client.id": "51",
+      "object.id": "92",
+      "object.serial": "273"
+    },
+    "profiles": {
+      "off": {
+        "description": "Off",
+        "sinks": 0,
+        "sources": 0,
+        "priority": 0,
+        "available": true
+      },
+      "a2dp-sink-sbc": {
+        "description": "High Fidelity Playback (A2DP Sink, codec SBC)",
+        "sinks": 1,
+        "sources": 0,
+        "priority": 132,
+        "available": true
+      },
+      "a2dp-sink-sbc_xq": {
+        "description": "High Fidelity Playback (A2DP Sink, codec SBC-XQ)",
+        "sinks": 1,
+        "sources": 0,
+        "priority": 131,
+        "available": true
+      },
+      "a2dp-sink-aac": {
+        "description": "High Fidelity Playback (A2DP Sink, codec AAC)",
+        "sinks": 1,
+        "sources": 0,
+        "priority": 133,
+        "available": true
+      },
+      "a2dp-sink-aptx": {
+        "description": "High Fidelity Playback (A2DP Sink, codec aptX)",
+        "sinks": 1,
+        "sources": 0,
+        "priority": 134,
+        "available": true
+      },
+      "a2dp-sink": {
+        "description": "High Fidelity Playback (A2DP Sink, codec aptX HD)",
+        "sinks": 1,
+        "sources": 0,
+        "priority": 135,
+        "available": true
+      },
+      "headset-head-unit-cvsd": {
+        "description": "Headset Head Unit (HSP/HFP, codec CVSD)",
+        "sinks": 1,
+        "sources": 1,
+        "priority": 7,
+        "available": true
+      },
+      "headset-head-unit": {
+        "description": "Headset Head Unit (HSP/HFP, codec MSBC)",
+        "sinks": 1,
+        "sources": 1,
+        "priority": 8,
+        "available": true
+      }
+    },
+    "active_profile": "headset-head-unit",
+    "ports": {
+      "headset-input": {
+        "description": "Handsfree",
+        "type": "Headset",
+        "priority": 0,
+        "latency_offset": "0 usec",
+        "availability_group": "",
+        "availability": "available",
+        "properties": {
+          "port.type": "headset"
+        },
+        "profiles": [
+          "headset-head-unit-cvsd",
+          "headset-head-unit"
+        ]
+      },
+      "headset-output": {
+        "description": "Headphones",
+        "type": "Headset",
+        "priority": 0,
+        "latency_offset": "0 usec",
+        "availability_group": "",
+        "availability": "available",
+        "properties": {
+          "port.type": "headset",
+          "device.icon_name": "audio-headphones-bluetooth"
+        },
+        "profiles": [
+          "a2dp-sink-sbc",
+          "a2dp-sink-sbc_xq",
+          "a2dp-sink-aac",
+          "a2dp-sink-aptx",
+          "a2dp-sink"
+        ]
+      },
+      "headset-hf-output": {
+        "description": "Handsfree",
+        "type": "Headset",
+        "priority": 0,
+        "latency_offset": "0 usec",
+        "availability_group": "",
+        "availability": "available",
+        "properties": {
+          "port.type": "headset",
+          "device.icon_name": "audio-headset-bluetooth"
+        },
+        "profiles": [
+          "headset-head-unit-cvsd",
+          "headset-head-unit"
+        ]
+      }
+    }
+  }
+]

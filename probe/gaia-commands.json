@@ -1,0 +1,829 @@
+[
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0000",
+  "name": "Core_Api_Version_Get",
+  "property": "Core_Api_Version",
+  "request_params": [
+   "UINT8 otaCommand"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0001",
+  "name": "Core_GetSupportedFeatures_Get",
+  "property": "Core_GetSupportedFeatures",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0002",
+  "name": "Core_GetSupportedFeaturesNext_Get",
+  "property": "Core_GetSupportedFeaturesNext",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0003",
+  "name": "Core_GetSerialNumber",
+  "property": "Core_SerialNumber",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0007",
+  "name": "Config_RegisterNotification",
+  "property": "RegisterNotification_qDFU",
+  "request_params": [
+   "UINT8 featureID"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0009",
+  "name": "Core_DataTransferSetup",
+  "property": "Core_DataTransferSetup",
+  "request_params": [
+   "UINT16 sessionId",
+   "UINT8 transportType"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x000A",
+  "name": "Core_DataTransferGet",
+  "property": "Core_DataTransferGet",
+  "request_params": [
+   "UINT16 sessionId",
+   "UINT32 startOffset",
+   "UINT32 dataSize"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x000C",
+  "name": "Core_GetTransportInfo",
+  "property": "Core_GetTransportInfo",
+  "request_params": [
+   "UINT8 transportKey"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x000D",
+  "name": "Core_SetTransportParameter_Set",
+  "property": "Core_SetTransportParameter",
+  "request_params": [
+   "UINT8 transportKey",
+   "UINT32 value"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0600",
+  "name": "VoiceUI_Selected_Assistant_Get",
+  "property": "VoiceUI_Selected_Assistant",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0601",
+  "name": "VoiceUI_Selected_Assistant_Set",
+  "property": "VoiceUI_Selected_Assistant",
+  "request_params": [
+   "UINT8 provider"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0602",
+  "name": "VoiceUI_Supported_Assistants_Get",
+  "property": "VoiceUI_Supported_Assistants",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0803",
+  "name": "Debug_GetPanicLogInfo",
+  "property": "Debug_GetPanicLogInfo",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0804",
+  "name": "Debug_ErasePanicLog",
+  "property": "Debug_ErasePanicLog",
+  "request_params": [
+   "UINT16 payloadWord"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0C00",
+  "name": "UPGRADE_GaiaConnect",
+  "property": "Upgrade_GaiaConnect",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0C01",
+  "name": "UPGRADE_GaiaDisconnect",
+  "property": "Upgrade_GaiaDisconnect",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x0C02",
+  "name": "UPGRADE_VM_UpgradeControl",
+  "property": "Upgrade_TransferComplete_Trigger",
+  "request_params": [
+   "UINT8 parameter1"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x1800",
+  "name": "Statistics_GetAvailableCategories",
+  "property": "Statistics_GetAvailableCategories",
+  "request_params": [
+   "UINT16 Last received ID"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x1801",
+  "name": "Statistics_GetAllStatisticsInCategory",
+  "property": "Statistics_GetAllStatisticsInCategory",
+  "request_params": [
+   "UINT16 Category ID",
+   "UINT8 Last received statistics ID"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x001D",
+  "command_id": "0x1802",
+  "name": "Statistics_GetStatisticsValues",
+  "property": "Statistics_GetStatisticsValues",
+  "request_params": [
+   "UINT16 Category ID",
+   "UINT8 statistics ID"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0007",
+  "name": "Config_RegisterNotification_Sennheiser",
+  "property": "RegisterNotification_Device",
+  "request_params": [
+   "UINT8 featureID"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0040",
+  "name": "Service_FactoryReset",
+  "property": "Service_FactoryReset",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0041",
+  "name": "Development_Primary_Side",
+  "property": "Primary_Side",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0200",
+  "name": "Upgrade_EnterDfuMode",
+  "property": "Upgrade_Enable",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0201",
+  "name": "Upgrade_SetUpgradeFilesize",
+  "property": "UpgradeFileSize",
+  "request_params": [
+   "UINT32 sizeOfUpgradeFile"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0202",
+  "name": "",
+  "property": "UpgradeProgress",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0400",
+  "name": "OnHeadDetection_Mode_Set",
+  "property": "Setting_OnHeadDetection",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0401",
+  "name": "OnHeadDetection_Mode_Get",
+  "property": "Setting_OnHeadDetection",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0402",
+  "name": "PhysicalDevice_State_Get",
+  "property": "PhysicalDevice_State",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0405",
+  "name": "BluetoothCompatibilityMode_Set",
+  "property": "BluetoothCompatibilityMode",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0406",
+  "name": "BluetoothCompatibilityMode_Get",
+  "property": "BluetoothCompatibilityMode",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0600",
+  "name": "Config_SetTimerConfiguration",
+  "property": "Config_SetTimer",
+  "request_params": [
+   "UINT8 Timer number",
+   "UINT16 Timer value"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0601",
+  "name": "Config_GetTimerConfiguration",
+  "property": "Config_GetTimer",
+  "request_params": [
+   "UINT8 Timer number"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0602",
+  "name": "Battery_ChargingState_Get_TW",
+  "property": "Battery_ChargingStatus",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0603",
+  "name": "Battery_GetBatteryLevels",
+  "property": "Battery_Percent",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0800",
+  "name": "System_CodecUsed_Get_TW",
+  "property": "Sound_CodecUsed",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0801",
+  "name": "AudioPrompt_Mode_Set",
+  "property": "Setting_AudioPromptMode",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0802",
+  "name": "AudioPrompt_Mode_Get",
+  "property": "Setting_AudioPromptMode",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0805",
+  "name": "Sidetone_SetState",
+  "property": "SidetoneState",
+  "request_params": [
+   "UINT8 sidetone state"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0806",
+  "name": "Sidetone_GetState",
+  "property": "SidetoneState",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0807",
+  "name": "AudioPrompt_CustomLanguage_Get_TW",
+  "property": "VoicePrompt_Language",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0808",
+  "name": "AudioPrompt_GetAvailableAudioPromptsLanguages",
+  "property": "AudioPrompt_GetAvailableAudioPromptsLanguages",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0809",
+  "name": "AudioPrompt_GetAudioPromptsLanguageVersions",
+  "property": "AudioPrompt_GetAudioPromptsLanguageVersions",
+  "request_params": [
+   "UINT8 side"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x080A",
+  "name": "AutoCall_Mode_Set",
+  "property": "Setting_AutoCall",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x080B",
+  "name": "AutoCall_Mode_Get",
+  "property": "Setting_AutoCall",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x080C",
+  "name": "System_AutoPause_Set",
+  "property": "Setting_SmartPause",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x080D",
+  "name": "System_AutoPause_Get",
+  "property": "Setting_SmartPause",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0814",
+  "name": "Call_Externalization_Set",
+  "property": "Setting_ComfortCall",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0815",
+  "name": "Call_Externalization_Get",
+  "property": "Setting_ComfortCall",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0817",
+  "name": "LowLatencyMode_Set",
+  "property": "LowLatencyMode",
+  "request_params": [
+   "UINT8 LowLatencymode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x0818",
+  "name": "LowLatencyMode_Get",
+  "property": "LowLatencyMode",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1200",
+  "name": "Service_GetHwRevision_TW",
+  "property": "Service_HWRevision",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1201",
+  "name": "SERVICE_GetSystemReleaseVersion",
+  "property": "Service_SystemReleaseVersion",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1202",
+  "name": "System_Version_Get_TW",
+  "property": "FirmwareVersions",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1206",
+  "name": "Versions_GetModelId",
+  "property": "Versions_ModelId",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1400",
+  "name": "DeviceList_GetPairedDeviceListSize",
+  "property": "PairedDevicesListSize",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1401",
+  "name": "DeviceList_GetDeviceInfo",
+  "property": "PairedDevicesGetDeviceInfo",
+  "request_params": [
+   "UINT8 deviceIndex"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1402",
+  "name": "DeviceList_Connect",
+  "property": "PairedDevicesConnectDevice",
+  "request_params": [
+   "UINT8 deviceIndex"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1403",
+  "name": "DeviceList_Disconnect",
+  "property": "PairedDevicesDisconnectDevice",
+  "request_params": [
+   "UINT8 deviceIndex"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1404",
+  "name": "DeviceList_GetConnectionStatus",
+  "property": "PairedDevicesGetConnectionStatus",
+  "request_params": [
+   "UINT8 deviceIndex"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1405",
+  "name": "DeviceList_DeleteEntry",
+  "property": "PairedDevicesDeleteEntry",
+  "request_params": [
+   "UINT8 deviceIndex"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1406",
+  "name": "DeviceList_DeletePDL",
+  "property": "PairedDevicesDeleteList",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1407",
+  "name": "DeviceList_GetOwnDeviceIndex",
+  "property": "PairedDevicesOwnDeviceIndex",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1409",
+  "name": "DeviceList_GetMaxBtConnections",
+  "property": "PairedDevicesMaxBTConnections",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1600",
+  "name": "MMI_SetConfig",
+  "property": "SetMMIConfig",
+  "request_params": [
+   "UINT8 button number",
+   "UINT8 pattern",
+   "UINT8 function"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1601",
+  "name": "MMI_GetConfig",
+  "property": "GetMMIConfig",
+  "request_params": [
+   "UINT8 button number",
+   "UINT8 pattern"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1604",
+  "name": "MMI_SetDefaultConfig",
+  "property": "SetDefaultMMIConfig",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1605",
+  "name": "MMI_IsDefaultConfig",
+  "property": "IsDefaultMMIConfig",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1606",
+  "name": "System_AutoLock_Set",
+  "property": "Setting_AutoLockMode",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1607",
+  "name": "System_AutoLock_Get",
+  "property": "Setting_AutoLockMode",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1800",
+  "name": "TransparentHearing_Mode_Set_TW",
+  "property": "TransparentHearingMode",
+  "request_params": [
+   "UINT8 mode"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1801",
+  "name": "TransparentHearing_Mode_Get_TW",
+  "property": "TransparentHearingMode",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1802",
+  "name": "TransparentHearing_Status_Set_TW",
+  "property": "TransparentHearing",
+  "request_params": [
+   "UINT8 status"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1803",
+  "name": "TransparentHearing_Status_Get_TW",
+  "property": "TransparentHearing",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1804",
+  "name": "TransparentHearing_Status_Set",
+  "property": "TransparentHearing_Status",
+  "request_params": [
+   "UINT8 status"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1805",
+  "name": "TransparentHearing_Status_Get",
+  "property": "TransparentHearing_Status",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1A00",
+  "name": "ANC_SetNoiseCancelationMode",
+  "property": "ANC",
+  "request_params": [
+   "UINT8 mode",
+   "UINT8 state"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1A01",
+  "name": "ANC_GetNoiseCancelationMode",
+  "property": "ANC",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1A02",
+  "name": "ANC_Transparency_Set",
+  "property": "ANC_Transparency",
+  "request_params": [
+   "UINT8 level"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1A03",
+  "name": "ANC_Transparency_Get",
+  "property": "ANC_Transparency",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1A04",
+  "name": "ANC_SetNoiseCancelation",
+  "property": "ANC_Status",
+  "request_params": [
+   "UINT8 activation"
+  ],
+  "has_response": true,
+  "has_notification": false
+ },
+ {
+  "vendor": "0x0495",
+  "command_id": "0x1A05",
+  "name": "ANC_GetNoiseCancelation",
+  "property": "ANC_Status",
+  "request_params": [],
+  "has_response": true,
+  "has_notification": false
+ }
+]

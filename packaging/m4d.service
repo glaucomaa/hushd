@@ -1,0 +1,16 @@
+[Unit]
+Description=Sennheiser MOMENTUM 4 control daemon
+After=bluetooth.service
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/m4d
+Restart=always
+RestartSec=2
+# The daemon only needs the user's BlueZ session and its own socket.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

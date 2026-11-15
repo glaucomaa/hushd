@@ -1,0 +1,15 @@
+[package]
+name = "m4ctl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+gaia.workspace = true
+rfcomm.workspace = true
+m4.workspace = true
+thiserror.workspace = true
+audio.workspace = true
+clap.workspace = true
+serde_json.workspace = true
