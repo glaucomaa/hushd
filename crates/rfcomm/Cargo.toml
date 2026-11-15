@@ -7,5 +7,25 @@ rust-version.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace = true
 zbus.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-core-foundation = { version = "0.3.2", features = ["CFDate", "CFRunLoop", "CFString"] }
+objc2-foundation = { version = "0.3.2", features = ["NSArray", "NSData", "NSDictionary", "NSObject", "NSString"] }
+objc2-io-bluetooth = { version = "0.3.2", default-features = false, features = [
+    "std",
+    "Bluetooth",
+    "IOBluetoothDevice",
+    "IOBluetoothObject",
+    "IOBluetoothRFCOMMChannel",
+    "IOBluetoothSDPServiceRecord",
+    "IOBluetoothSDPUUID",
+    "IOBluetoothTypes",
+    "objc2",
+    "objc2-core-foundation",
+    "objc2-foundation",
+] }

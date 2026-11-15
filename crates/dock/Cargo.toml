@@ -1,0 +1,20 @@
+[package]
+name = "dock"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ipc.workspace = true
+m4.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-app-kit = "0.3.2"
+objc2-foundation = { version = "0.3.2", features = ["NSTimer"] }
+objc2-service-management = "0.3.2"
+
+[[bin]]
+name = "m4-dock"
+path = "src/main.rs"

@@ -1,48 +1,46 @@
-# macOS: план поддержки
+# macOS
 
-Сейчас транспорт работает только на Linux. TUI, CLI и IPC платформенно-нейтральны.
-Для macOS нужен отдельный RFCOMM-бэкенд.
+Поддержка macOS 13+. Проверено на macOS 15, прошивка 3.38.3.
 
-## Подход
+## Состав
 
-- Использовать `IOBluetoothRFCOMMChannel` через `objc2-io-bluetooth`.
-- Устройства получать из `IOBluetoothDevice.pairedDevices()`.
-- GAIA-канал искать по UUID через `IOBluetoothSDPServiceRecord`.
-- Асинхронный канал запускать в потоке с `CFRunLoop`.
-- Сохранить существующий трейт `m4::Transport` (`send`/`recv` с таймаутом).
-- Разрешение Bluetooth (TCC) при первом запуске получать интерактивно.
+- `crates/rfcomm/src/macos`: IOBluetooth, SDP и RFCOMM.
+- `crates/dock`: AppKit, строка меню, popover и основное окно.
+- `crates/mpris/src/macos.rs`: Music и Spotify через AppleScript.
+- GAIA, IPC, CLI и TUI общие с Linux.
 
-Справка Apple: [IOBluetoothRFCOMMChannel](https://developer.apple.com/documentation/iobluetooth/iobluetoothrfcommchannel).
+Сокет: `~/Library/Application Support/m4/m4d.sock`.
+Кодек и частота читаются через GAIA. Аудиопрофили управляются macOS.
 
-## Уже готово
+## Приложение
 
-- Тонкий трейт транспорта и тесты на моках.
-- Linux RFCOMM + SDP с fallback на каналы 1 и 15.
-- Платформенные границы в `m4d` и `m4ctl`.
-- TUI на Ratatui.
-- [SketchyBar-модуль](../scripts/sketchybar-m4.sh).
-- [Шаблон launchd](../packaging/m4d.launchd.plist).
+- Строка меню: заряд и режим ANC.
+- Popover: ANC, прозрачность, звук, трек и Connect/Disconnect.
+- Окно: EQ, сопряжённые устройства и технические данные.
+- Ручной Disconnect сохраняется до явного Connect.
+- После внешнего разрыва reconnect ждёт 3 секунды.
+- `M4_SHOW_WINDOW=1`: открыть окно при запуске.
+- `M4_MENU_BAR_ONLY=1`: скрыть иконку в Dock.
+- `M4_NO_AUTOSTART=1`: не регистрировать запуск при входе.
 
-## Фазы
+## Установка
 
-1. `rfcomm-macos`: SDP, async RFCOMM, поток с `CFRunLoop`, таймауты.
-2. Выбор бэкенда через `cfg(target_os)` в `m4d` и `m4ctl`.
-3. Установщик launchd и первый интерактивный запуск для TCC.
-4. Аудио: сначала GAIA codec/sample rate; профили A2DP/HFP не переключать.
-5. Проверка TUI и SketchyBar на реальном Mac.
-6. Сборка `aarch64-apple-darwin`, universal binary, Homebrew, подпись.
+```bash
+./scripts/install-macos.sh
+open "$HOME/Applications/M4.app"
+```
 
-## Риски
+Установка не требует администратора. `m4d` находится внутри `M4.app` и запускается через
+launchd. Bundle подписывается; сертификат задаётся через `M4_CODESIGN_IDENTITY`.
+Лог `~/Library/Logs/m4d.log` ротируется после 1 MiB.
 
-- `IOBluetooth` — deprecated API.
-- Async-канал и run loop могут зависать; обязательны таймауты и watchdog.
-- Доступ Bluetooth для launchd выдаётся бинарю демона, а не терминалу.
-- Поведение двух GAIA-каналов на macOS нужно проверить на устройстве.
+Проверка:
 
-## Минимальная проверка на Mac
+```bash
+m4 status
+m4 doctor
+cargo test --workspace
+```
 
-- `uname -m`, `sw_vers`.
-- Наушники сопряжены в System Settings → Bluetooth.
-- `pairedDevices()` видит MOMENTUM 4.
-- SDP возвращает RFCOMM-канал.
-- Запрос `FF 03 00 00 04 95 06 03` возвращает заряд.
+IOBluetooth является deprecated API. Universal binary, notarization и переключение
+аудиопрофилей не реализованы.

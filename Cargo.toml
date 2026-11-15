@@ -11,6 +11,7 @@ members = [
     "crates/mpris",
     "crates/tui",
     "crates/m4ctl",
+    "crates/dock",
 ]
 
 [workspace.package]

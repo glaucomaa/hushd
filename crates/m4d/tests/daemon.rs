@@ -18,6 +18,7 @@ impl Daemon {
         let _ = std::fs::remove_file(&socket);
         let child = Command::new(env!("CARGO_BIN_EXE_m4d"))
             .env("M4D_SOCKET", &socket)
+            .env("M4D_OFFLINE", "1")
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
@@ -39,6 +40,7 @@ impl Drop for Daemon {
         let _ = self.child.kill();
         let _ = self.child.wait();
         let _ = std::fs::remove_file(&self.socket);
+        let _ = std::fs::remove_file(self.socket.with_extension("lock"));
     }
 }
 
@@ -84,5 +86,39 @@ fn daemon_rejects_garbage_without_dying() {
     assert!(line.contains("bad request"), "unexpected reply: {line}");
 
     let response = ipc::request(&daemon.socket, &Request::Status).expect("still serving");
+    assert!(matches!(response, Response::Status(_)));
+}
+
+#[test]
+fn a_second_daemon_leaves_the_running_one_alone() {
+    let daemon = Daemon::start("singleton");
+
+    let mut second = Command::new(env!("CARGO_BIN_EXE_m4d"))
+        .env("M4D_SOCKET", &daemon.socket)
+        .env("M4D_OFFLINE", "1")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("spawn second m4d");
+
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match second.try_wait().expect("wait for second m4d") {
+            Some(status) => {
+                assert!(status.success(), "second instance should exit cleanly");
+                break;
+            }
+            None => {
+                assert!(
+                    Instant::now() < deadline,
+                    "second instance did not exit; it must not replace the running daemon"
+                );
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+
+    let response =
+        ipc::request(&daemon.socket, &Request::Status).expect("first daemon still serves");
     assert!(matches!(response, Response::Status(_)));
 }

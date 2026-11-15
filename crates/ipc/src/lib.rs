@@ -33,6 +33,7 @@ pub enum Request {
     BassBoost { enabled: bool },
     TouchLock { enabled: bool },
     Audio { set_profile: Option<String> },
+    HeadsetConnect { connect: bool },
     ConnectPeer { index: u8 },
     DisconnectPeer { index: u8 },
     Shutdown,
@@ -131,9 +132,18 @@ pub fn socket_path() -> PathBuf {
     if let Some(explicit) = std::env::var_os("M4D_SOCKET") {
         return PathBuf::from(explicit);
     }
+    #[cfg(target_os = "macos")]
+    if let Some(home) = std::env::var_os("HOME") {
+        return PathBuf::from(home)
+            .join("Library/Application Support/m4")
+            .join("m4d.sock");
+    }
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         return PathBuf::from(dir).join("m4d.sock");
     }
+    #[cfg(target_os = "macos")]
+    return PathBuf::from(format!("/tmp/m4d-{}.sock", unsafe { libc::getuid() }));
+    #[cfg(not(target_os = "macos"))]
     PathBuf::from(format!("/tmp/m4d-{}.sock", std::process::id()))
 }
 

@@ -1,8 +1,8 @@
 # m4
 
 Локальное управление Sennheiser MOMENTUM 4 через Bluetooth Classic (RFCOMM + GAIA v3).
-Без облака, аккаунта и телеметрии. Проверено на прошивке 3.38.3, Arch Linux, BlueZ 5.87,
-PipeWire 1.6.9.
+Без облака, аккаунта и телеметрии. Проверено на прошивке 3.38.3, Arch Linux с BlueZ 5.87
+и macOS 15 с IOBluetooth.
 
 ## Возможности
 
@@ -10,28 +10,42 @@ PipeWire 1.6.9.
 - Пять полос EQ, пресеты Sennheiser, bass boost.
 - Заряд, прошивка, состояние наушников и сопряжённых устройств.
 - Подключение и отключение сопряжённых хостов.
-- Кодек, профиль и частота из PipeWire.
-- CLI, TUI в двух режимах, Waybar и MPRIS now playing.
+- Кодек и частота из GAIA; профиль и параметры PipeWire на Linux.
+- CLI, TUI в двух режимах, Waybar и MPRIS now playing на Linux.
+- Нативное приложение macOS: иконка в строке меню и окно с ANC, прозрачностью,
+  EQ-пресетами, bass boost и состоянием.
 
 Один демон держит RFCOMM-сессию; клиенты подключаются к нему через UNIX-сокет.
-Это исключает конфликты `EBUSY` между CLI, TUI и Waybar.
+Это исключает конфликты `EBUSY` между CLI, TUI, Waybar, строкой меню и Dock.
 
 ## Требования
 
-- Linux, BlueZ, Rust 1.87+.
-- Заголовки BlueZ: `libbluetooth-dev` (Debian/Ubuntu) или `bluez-libs-devel` (Fedora).
-- Для аудиоинтеграции: PipeWire, `pactl`, `wpctl`.
-- Для now playing: `playerctl`.
+Общее: Rust 1.87+ и сопряжённые MOMENTUM 4.
+
+- Linux: BlueZ и заголовки `libbluetooth-dev` (Debian/Ubuntu) или
+  `bluez-libs-devel` (Fedora); для аудиоинтеграции PipeWire, `pactl`, `wpctl`;
+  для now playing `playerctl`.
+- macOS 13+: IOBluetooth из системного фреймворка, Command Line Tools для сборки.
 
 ## Сборка и установка
+
+Linux:
 
 ```bash
 cargo build --release -p m4d -p cli -p tui
 ./scripts/install.sh
 ```
 
-Установщик копирует бинари в `~/.local/bin`, устанавливает пользовательский systemd unit
-и перезапускает `m4d`. Если `~/.cargo` доступен только для чтения:
+macOS:
+
+```bash
+./scripts/install-macos.sh
+open "$HOME/Applications/M4.app"
+```
+
+Установщики копируют бинари в `~/.local/bin` и регистрируют пользовательскую службу
+`m4d` через systemd или launchd. На macOS приложение устанавливается в
+`~/Applications/M4.app`. Если `~/.cargo` доступен только для чтения:
 
 ```bash
 CARGO_HOME=$PWD/.cargo-home cargo build --release -p m4d -p cli -p tui
@@ -49,8 +63,10 @@ m4 preset list|rock|pop|dance|hip-hop|classical|movie|jazz|neutral
 m4 bass-boost on|off
 m4 touch-lock on|off
 m4 get battery
-m4 audio                        # профиль, кодек, частота
-m4 audio a2dp-sink              # вернуть A2DP после HFP
+m4 connect                      # подключить наушники через IOBluetooth
+m4 disconnect                   # отключить наушники от этого Mac
+m4 audio                        # профиль, кодек, частота (только Linux)
+m4 audio a2dp-sink              # вернуть A2DP после HFP на Linux
 m4 doctor                       # диагностика через демон
 
 m4-tui                          # приборная панель
@@ -64,6 +80,29 @@ m4ctl info
 m4ctl doctor
 m4ctl devices
 m4ctl --channel 15 get battery  # явный канал вместо SDP
+```
+
+`m4ctl` открывает собственную RFCOMM-сессию, поэтому на время диагностики `m4d`
+нужно остановить.
+
+## macOS
+
+```bash
+open "$HOME/Applications/M4.app"
+```
+
+Клик по иконке в строке меню открывает popover с основными настройками.
+«Open M4…» открывает окно с EQ и сопряжёнными устройствами. Закрытие окна не завершает
+приложение. Music и Spotify отдают текущий трек через AppleScript.
+
+Приложение запускается при входе. По умолчанию открывается только строка меню.
+`M4_SHOW_WINDOW=1` показывает окно сразу, `M4_MENU_BAR_ONLY=1` скрывает иконку в Dock.
+`M4_CODESIGN_IDENTITY` задаёт сертификат для подписи. Лог: `~/Library/Logs/m4d.log`.
+
+Служба перезапускается через launchd:
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/dev.m4.m4d"
 ```
 
 ## Waybar
@@ -111,7 +150,7 @@ RFCOMM-каналы определяются через SDP; fallback — кан
 ```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace          # 81 тест
+cargo test --workspace
 m4ctl doctor                    # проверка на наушниках
 ```
 
@@ -119,4 +158,4 @@ m4ctl doctor                    # проверка на наушниках
 
 - [research.md](research.md) — протокол и проверенные факты.
 - [probe/gaia-commands.md](probe/gaia-commands.md) — карта команд.
-- [docs/PLAN-MACOS.md](docs/PLAN-MACOS.md) — план поддержки macOS.
+- [docs/PLAN-MACOS.md](docs/PLAN-MACOS.md) — macOS.

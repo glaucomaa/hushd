@@ -1,10 +1,17 @@
-//! "Now playing" through playerctl, which every MPRIS player supports.
+//! Now playing from MPRIS or macOS players.
 
 use std::process::Command;
 
 use m4::NowPlaying;
 
+#[cfg(target_os = "macos")]
+mod macos;
+
 pub fn current() -> Option<NowPlaying> {
+    #[cfg(target_os = "macos")]
+    if std::env::var_os("M4_PLAYERCTL").is_none() {
+        return macos::current();
+    }
     let players = run(&["--list-all"])?;
     let mut paused = None;
 

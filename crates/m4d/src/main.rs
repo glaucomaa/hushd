@@ -1,8 +1,10 @@
+mod logging;
 mod worker;
 
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::fs::PermissionsExt;
+use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::process::ExitCode;
 use std::sync::mpsc::{self, Sender};
@@ -12,22 +14,19 @@ use std::time::Duration;
 use ipc::{Event, Request, Response, Status};
 
 fn main() -> ExitCode {
-    let (listener, path) = match bind(ipc::socket_path()) {
+    let (listener, path, _lock) = match bind(ipc::socket_path()) {
         Ok(bound) => bound,
+        Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => {
+            // Leave the live daemon alone; launchd must see a clean exit.
+            m4d_log!("m4d: {error}");
+            return ExitCode::SUCCESS;
+        }
         Err(error) => {
-            eprintln!("m4d: cannot bind {}: {error}", ipc::socket_path().display());
-            let fallback =
-                std::path::PathBuf::from(format!("/tmp/m4d-{}.sock", std::process::id()));
-            match bind(fallback) {
-                Ok(bound) => bound,
-                Err(error) => {
-                    eprintln!("m4d: cannot bind a fallback socket either: {error}");
-                    return ExitCode::FAILURE;
-                }
-            }
+            m4d_log!("m4d: cannot bind {}: {error}", ipc::socket_path().display());
+            return ExitCode::FAILURE;
         }
     };
-    eprintln!("m4d: listening on {}", path.display());
+    m4d_log!("m4d: listening on {}", path.display());
 
     let state = Arc::new(RwLock::new(Status::default()));
     let subscribers: Arc<Mutex<Vec<Sender<Event>>>> = Arc::default();
@@ -35,24 +34,74 @@ fn main() -> ExitCode {
     let worker = worker::spawn(receiver, state.clone(), subscribers.clone());
     std::thread::spawn(move || {
         let _ = worker.join();
-        eprintln!("m4d: worker stopped; exiting so the supervisor can restart it");
+        m4d_log!("m4d: worker stopped; exiting so the supervisor can restart it");
         std::process::exit(1);
     });
 
+    #[cfg(target_os = "macos")]
+    {
+        std::thread::spawn(move || accept_connections(listener, commands, subscribers, state));
+        loop {
+            rfcomm::pump_run_loop();
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        accept_connections(listener, commands, subscribers, state);
+        ExitCode::SUCCESS
+    }
+}
+
+fn accept_connections(
+    listener: UnixListener,
+    commands: Sender<worker::Command>,
+    subscribers: Arc<Mutex<Vec<Sender<Event>>>>,
+    state: Arc<RwLock<Status>>,
+) {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => serve(stream, commands.clone(), subscribers.clone(), state.clone()),
-            Err(error) => eprintln!("m4d: accept failed: {error}"),
+            Err(error) => m4d_log!("m4d: accept failed: {error}"),
         }
     }
-    ExitCode::SUCCESS
 }
 
-fn bind(path: std::path::PathBuf) -> std::io::Result<(UnixListener, std::path::PathBuf)> {
-    let _ = fs::remove_file(&path);
+fn bind(path: std::path::PathBuf) -> std::io::Result<(UnixListener, std::path::PathBuf, fs::File)> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let lock_path = path.with_extension("lock");
+    let lock = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(&lock_path)?;
+    fs::set_permissions(&lock_path, fs::Permissions::from_mode(0o600))?;
+    // SAFETY: the lock file remains open for the daemon's entire lifetime.
+    if unsafe { libc::flock(lock.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            format!("{} is already served by another m4d", path.display()),
+        ));
+    }
+    if path.exists() {
+        match UnixStream::connect(&path) {
+            Ok(_) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::AddrInUse,
+                    format!("{} is already served by another m4d", path.display()),
+                ));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+                fs::remove_file(&path)?;
+            }
+            Err(error) => return Err(error),
+        }
+    }
     let listener = UnixListener::bind(&path)?;
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
-    Ok((listener, path))
+    Ok((listener, path, lock))
 }
 
 fn serve(
@@ -82,6 +131,12 @@ fn serve(
                 return;
             }
         };
+
+        if matches!(request, Request::Status) {
+            let status = state.read().map(|value| value.clone()).unwrap_or_default();
+            let _ = reply(&mut writer, &Response::Status(status));
+            return;
+        }
 
         if matches!(request, Request::Watch) {
             let (sender, receiver) = mpsc::channel();

@@ -34,6 +34,10 @@ enum Command {
     Watch,
     /// Stream Waybar JSON lines, one per state change
     Waybar,
+    /// Connect the paired headset through the system Bluetooth backend
+    Connect,
+    /// Disconnect the headset from this Mac
+    Disconnect,
     /// Noise control: adaptive, custom, off or cycle
     Anc { mode: String },
     /// Transparency level 0..100, or a relative step such as +5 / -5 (custom mode)
@@ -53,7 +57,7 @@ enum Command {
     BassBoost { state: Toggle },
     /// Lock or unlock the touch panel
     TouchLock { state: Toggle },
-    /// PipeWire profile and codec; pass a profile name to switch
+    /// Audio details; PipeWire profile switching is Linux-only
     Audio { profile: Option<String> },
     /// Read one property
     Get { property: String },
@@ -159,6 +163,8 @@ fn run(cli: Cli) -> Result<(), String> {
             .map_err(|error| error.to_string())?;
             return Ok(());
         }
+        Some(Command::Connect) => Request::HeadsetConnect { connect: true },
+        Some(Command::Disconnect) => Request::HeadsetConnect { connect: false },
         Some(Command::Anc { mode }) => {
             let mode = match mode.as_str() {
                 "adaptive" => AncMode::Adaptive,
@@ -372,6 +378,7 @@ fn doctor(socket: &std::path::Path) -> Result<(), String> {
     }
 
     println!("audio");
+    #[cfg(target_os = "linux")]
     match send(socket, &Request::Audio { set_profile: None })? {
         Response::Audio(audio) => {
             report(
@@ -391,6 +398,20 @@ fn doctor(socket: &std::path::Path) -> Result<(), String> {
         Response::Error { message } => report(false, "pipewire", message),
         other => report(false, "pipewire", format!("unexpected reply: {other:?}")),
     }
+    #[cfg(not(target_os = "linux"))]
+    report(
+        status.connected && status.info.codec.is_some(),
+        "gaia",
+        format!(
+            "{} · {}",
+            status.info.codec.clone().unwrap_or_else(|| "?".into()),
+            status
+                .info
+                .sample_rate_hz
+                .map(|hz| format!("{hz} Hz"))
+                .unwrap_or_else(|| "idle".into())
+        ),
+    );
 
     println!();
     if failed == 0 {
@@ -477,8 +498,13 @@ fn send(socket: &std::path::Path, request: &Request) -> Result<Response, String>
                 std::io::ErrorKind::NotFound | std::io::ErrorKind::ConnectionRefused
             ) =>
         {
+            let supervisor = if cfg!(target_os = "macos") {
+                "launchctl kickstart -k gui/$(id -u)/dev.m4.m4d"
+            } else {
+                "systemctl --user start m4d"
+            };
             format!(
-                "m4d is not running (socket {}); start it with `m4d` or `systemctl --user start m4d`",
+                "m4d is not running (socket {}); start it with `m4d` or `{supervisor}`",
                 path.display()
             )
         }

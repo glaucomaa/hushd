@@ -11,7 +11,7 @@ use m4::{Info, Session};
     about = "Sennheiser MOMENTUM 4 control over RFCOMM/GAIA"
 )]
 struct Cli {
-    /// Headset MAC; discovered through BlueZ when omitted
+    /// Headset MAC; discovered through the platform Bluetooth backend when omitted
     #[arg(long, global = true)]
     address: Option<String>,
     /// RFCOMM channel override (both GAIA channels answer on firmware 3.38.3)
@@ -27,9 +27,9 @@ struct Cli {
 enum Command {
     /// Headset state snapshot
     Info,
-    /// Bluetooth devices known to BlueZ
+    /// Paired Bluetooth devices
     Devices,
-    /// End-to-end health check: BlueZ, PipeWire, GAIA
+    /// End-to-end health check: Bluetooth, platform audio and GAIA
     Doctor,
     /// One property by name
     Get { property: String },
@@ -51,9 +51,9 @@ struct Peer {
     adapter: String,
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn peers() -> Result<Vec<Peer>, String> {
-    rfcomm::bluez::devices()
+    rfcomm::discovery::devices()
         .map(|devices| {
             devices
                 .into_iter()
@@ -68,9 +68,9 @@ fn peers() -> Result<Vec<Peer>, String> {
         .map_err(|error| error.to_string())
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn peers() -> Result<Vec<Peer>, String> {
-    Err("BlueZ discovery is Linux-only; pass --address".to_owned())
+    Err("automatic discovery is unavailable; pass --address".to_owned())
 }
 
 fn parse_hex(text: &str) -> Result<u8, String> {
@@ -79,7 +79,24 @@ fn parse_hex(text: &str) -> Result<u8, String> {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    match run(cli) {
+    #[cfg(target_os = "macos")]
+    {
+        let worker = std::thread::spawn(move || run(cli).map_err(|error| error.to_string()));
+        while !worker.is_finished() {
+            rfcomm::pump_run_loop();
+        }
+        report(
+            worker
+                .join()
+                .unwrap_or_else(|_| Err("worker panicked".into())),
+        )
+    }
+    #[cfg(not(target_os = "macos"))]
+    report(run(cli).map_err(|error| error.to_string()))
+}
+
+fn report(result: Result<(), String>) -> ExitCode {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("m4ctl: {error}");
@@ -120,7 +137,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|error| error.to_string())?
                 .into_iter()
                 .find(|peer| peer.name.to_uppercase().contains("MOMENTUM 4"))
-                .ok_or("no MOMENTUM 4 known to BlueZ; pass --address")?;
+                .ok_or("no paired MOMENTUM 4 found; pass --address")?;
             if !device.connected {
                 return Err(format!("{} is not connected", device.name).into());
             }
@@ -163,7 +180,7 @@ fn run(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn open_session(
     address: [u8; 6],
     channels: Option<&[u8]>,
@@ -174,12 +191,12 @@ fn open_session(
     }
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn open_session(
     _address: [u8; 6],
     _channels: Option<&[u8]>,
 ) -> Result<Session, Box<dyn std::error::Error>> {
-    Err("no GAIA transport on this platform yet (Linux only for now)".into())
+    Err("no GAIA transport on this platform".into())
 }
 
 fn get(session: &mut Session, property: &str) -> Result<String, Box<dyn std::error::Error>> {
@@ -257,39 +274,42 @@ fn doctor() -> Result<(), Box<dyn std::error::Error>> {
                 None => check(false, "headset", "not paired with this adapter".to_owned()),
             }
         }
-        Err(error) => check(false, "BlueZ D-Bus", error.to_string()),
+        Err(error) => check(false, "Bluetooth discovery", error.to_string()),
     }
-    match audio::autoswitch_headset_profile() {
-        Ok(Some(value)) => check(true, "autoswitch to HFP", value.to_string()),
-        Ok(None) => check(true, "autoswitch to HFP", "unset".to_owned()),
-        Err(error) => check(false, "autoswitch to HFP", error.to_string()),
-    }
-
-    println!("audio");
-    match audio::headset() {
-        Ok(Some(card)) => {
-            let codec = card.codec().unwrap_or("?");
-            let rate = card
-                .sink
-                .as_ref()
-                .and_then(|node| node.sample_rate_hz)
-                .map(|hz| format!("{hz} Hz"))
-                .unwrap_or_else(|| "idle".to_owned());
-            check(
-                true,
-                "card",
-                format!("{} {} {codec} {rate}", card.active_profile, card.name),
-            );
-            if !card.is_a2dp() && !card.is_headset() {
-                check(
-                    false,
-                    "profile",
-                    format!("unexpected profile {}", card.active_profile),
-                );
-            }
+    #[cfg(target_os = "linux")]
+    {
+        match audio::autoswitch_headset_profile() {
+            Ok(Some(value)) => check(true, "autoswitch to HFP", value.to_string()),
+            Ok(None) => check(true, "autoswitch to HFP", "unset".to_owned()),
+            Err(error) => check(false, "autoswitch to HFP", error.to_string()),
         }
-        Ok(None) => check(false, "card", "no MOMENTUM 4 card in PipeWire".to_owned()),
-        Err(error) => check(false, "PipeWire", error.to_string()),
+
+        println!("audio");
+        match audio::headset() {
+            Ok(Some(card)) => {
+                let codec = card.codec().unwrap_or("?");
+                let rate = card
+                    .sink
+                    .as_ref()
+                    .and_then(|node| node.sample_rate_hz)
+                    .map(|hz| format!("{hz} Hz"))
+                    .unwrap_or_else(|| "idle".to_owned());
+                check(
+                    true,
+                    "card",
+                    format!("{} {} {codec} {rate}", card.active_profile, card.name),
+                );
+                if !card.is_a2dp() && !card.is_headset() {
+                    check(
+                        false,
+                        "profile",
+                        format!("unexpected profile {}", card.active_profile),
+                    );
+                }
+            }
+            Ok(None) => check(false, "card", "no MOMENTUM 4 card in PipeWire".to_owned()),
+            Err(error) => check(false, "PipeWire", error.to_string()),
+        }
     }
 
     println!("gaia");
@@ -313,6 +333,18 @@ fn doctor() -> Result<(), Box<dyn std::error::Error>> {
                 );
                 let model = session.model().unwrap_or_else(|error| error.to_string());
                 check(true, "identity", model);
+                #[cfg(not(target_os = "linux"))]
+                {
+                    let codec = session
+                        .codec()
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|error| error.to_string());
+                    let rate = session
+                        .sample_rate()
+                        .map(|value| format!("{value} Hz"))
+                        .unwrap_or_else(|_| "idle".to_owned());
+                    check(true, "audio", format!("{codec} {rate}"));
+                }
             }
             Err(error) => {
                 let message = error.to_string();

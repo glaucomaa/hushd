@@ -24,13 +24,13 @@ pub fn parse_address(text: &str) -> Result<[u8; 6], String> {
 }
 
 /// Minimal transport the session needs: a byte stream with read timeouts.
-/// Linux uses RFCOMM sockets, macOS will use IOBluetooth's RFCOMM channel.
+/// Linux uses RFCOMM sockets, macOS uses IOBluetooth's RFCOMM channel.
 pub trait Transport: Send {
     fn send(&self, bytes: &[u8]) -> std::io::Result<()>;
     fn recv(&self, buffer: &mut [u8], timeout: Duration) -> std::io::Result<Option<usize>>;
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 impl Transport for rfcomm::Link {
     fn send(&self, bytes: &[u8]) -> std::io::Result<()> {
         rfcomm::Link::send(self, bytes)
@@ -125,7 +125,7 @@ pub fn preset(name: &str) -> Option<&'static Preset> {
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[error(transparent)]
     Rfcomm(#[from] rfcomm::Error),
     #[error("io: {0}")]
@@ -171,7 +171,7 @@ impl Session {
         }
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn open(address: [u8; 6], channels: &[u8], timeout: Duration) -> Result<Self, Error> {
         let (link, channel) = rfcomm::connect_any(address, channels, timeout)?;
         Ok(Self {
@@ -190,7 +190,7 @@ impl Session {
         })
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
     pub fn open_resolved(address: [u8; 6], timeout: Duration) -> Result<Self, Error> {
         let channels =
             rfcomm::sdp::resolve(address, gaia::SPP_UUID_BYTES).unwrap_or_else(|error| {

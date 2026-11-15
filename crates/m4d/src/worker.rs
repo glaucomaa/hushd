@@ -2,15 +2,20 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::m4d_log;
 use ipc::{AncMode, Event, Request, Response, Status};
 use m4::{Info, Session};
 
 const SUBSCRIBED_FEATURES: [u8; 6] = [3, 4, 2, 11, 12, 13];
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
 const DEFAULT_AUDIO_EVERY: Duration = Duration::from_secs(2);
+#[cfg(target_os = "linux")]
 const DEFAULT_TRACK_EVERY: Duration = Duration::from_secs(2);
-const POLL_EVERY: Duration = Duration::from_millis(20);
+#[cfg(not(target_os = "linux"))]
+const DEFAULT_TRACK_EVERY: Duration = Duration::from_secs(5);
+const POLL_EVERY: Duration = Duration::from_millis(100);
 const MAX_BACKOFF: Duration = Duration::from_secs(15);
+const LINK_LOSS_RETRY_DELAY: Duration = Duration::from_secs(3);
 
 pub enum Command {
     Request {
@@ -45,13 +50,24 @@ struct Worker {
 
 impl Worker {
     fn run(&mut self) {
-        self.run_with_connect(connect);
+        if std::env::var_os("M4D_OFFLINE").is_some() {
+            self.run_with_connect(|| Err("transport disabled".to_owned()));
+        } else {
+            self.run_with_connect(connect);
+        }
     }
 
-    fn run_with_connect(&mut self, mut try_connect: impl FnMut() -> Result<Session, String>) {
+    fn run_with_connect<F>(&mut self, try_connect: F)
+    where
+        F: Fn() -> Result<Session, String> + Send + Sync + 'static,
+    {
+        let try_connect = Arc::new(try_connect);
         let audio_every = interval_from_env("M4_AUDIO_INTERVAL", DEFAULT_AUDIO_EVERY);
         let track_every = interval_from_env("M4_TRACK_INTERVAL", DEFAULT_TRACK_EVERY);
         let mut session: Option<Session> = None;
+        let mut connecting: Option<Receiver<Result<Session, String>>> = None;
+        let mut reconnect_at = None;
+        let mut manually_disconnected = false;
         let mut backoff = Duration::from_secs(1);
         let now = Instant::now();
         let mut last_refresh = now;
@@ -62,6 +78,15 @@ impl Worker {
         loop {
             let mut stop = false;
             while let Ok(Command::Request { request, reply }) = self.rx.try_recv() {
+                if let Request::HeadsetConnect { connect } = &request {
+                    manually_disconnected = !connect;
+                    reconnect_at = None;
+                    if *connect {
+                        backoff = Duration::from_secs(1);
+                    } else {
+                        connecting = None;
+                    }
+                }
                 let (should_stop, peer_change) = self.handle_command(&mut session, request, reply);
                 stop = should_stop;
                 if peer_change {
@@ -76,48 +101,86 @@ impl Worker {
             }
 
             match session.as_mut() {
-                None => match try_connect() {
-                    Ok(mut fresh) => {
-                        let _ = fresh.subscribe(&SUBSCRIBED_FEATURES);
-                        let info = Info::read(&mut fresh);
-                        let channel = fresh.channel;
-                        let address = fresh.address.clone();
-                        self.publish(Status {
-                            connected: true,
-                            channel: Some(channel),
-                            error: None,
-                            info,
-                            audio: read_audio(address.as_deref()),
-                            now_playing: mpris::current(),
-                            address: address.clone(),
+                None => {
+                    if !manually_disconnected
+                        && connecting.is_none()
+                        && reconnect_at.is_none_or(|deadline| Instant::now() >= deadline)
+                    {
+                        self.set_error("connecting to MOMENTUM 4");
+                        let (sender, receiver) = std::sync::mpsc::channel();
+                        let connect = Arc::clone(&try_connect);
+                        std::thread::spawn(move || {
+                            let _ = sender.send(connect());
                         });
-                        eprintln!("m4d: connected on rfcomm channel {channel}");
-                        self.broadcast(Event::Connected { channel });
-                        session = Some(fresh);
-                        backoff = Duration::from_secs(1);
-                        last_refresh = Instant::now();
-                        dirty = false;
+                        connecting = Some(receiver);
+                        reconnect_at = None;
                     }
-                    Err(reason) => {
-                        eprintln!("m4d: {reason}");
-                        self.set_error(&reason);
-                        match self.rx.recv_timeout(backoff) {
-                            Ok(Command::Request { request, reply }) => {
-                                let (stop, peer_change) =
-                                    self.handle_command(&mut session, request, reply);
-                                if peer_change {
-                                    dirty = true;
+                    let outcome =
+                        connecting
+                            .as_ref()
+                            .and_then(|pending| match pending.try_recv() {
+                                Ok(outcome) => Some(outcome),
+                                Err(std::sync::mpsc::TryRecvError::Empty) => None,
+                                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                                    Some(Err("connection worker stopped".to_owned()))
                                 }
-                                if stop {
-                                    return;
+                            });
+                    if let Some(outcome) = outcome {
+                        connecting = None;
+                        match outcome {
+                            Ok(mut fresh) => {
+                                let _ = fresh.subscribe(&SUBSCRIBED_FEATURES);
+                                let info = Info::read(&mut fresh);
+                                let channel = fresh.channel;
+                                let address = fresh.address.clone();
+                                self.publish(Status {
+                                    connected: true,
+                                    channel: Some(channel),
+                                    error: None,
+                                    info,
+                                    audio: read_audio(address.as_deref()),
+                                    now_playing: mpris::current(),
+                                    address: address.clone(),
+                                });
+                                m4d_log!("m4d: connected on rfcomm channel {channel}");
+                                self.broadcast(Event::Connected { channel });
+                                session = Some(fresh);
+                                backoff = Duration::from_secs(1);
+                                last_refresh = Instant::now();
+                                dirty = false;
+                            }
+                            Err(reason) => {
+                                m4d_log!("m4d: {reason}");
+                                self.set_error(&reason);
+                                reconnect_at = Some(Instant::now() + backoff);
+                                backoff = (backoff * 2).min(MAX_BACKOFF);
+                            }
+                        }
+                    }
+                    match self.rx.recv_timeout(POLL_EVERY) {
+                        Ok(Command::Request { request, reply }) => {
+                            if let Request::HeadsetConnect { connect } = &request {
+                                manually_disconnected = !connect;
+                                reconnect_at = None;
+                                if *connect {
+                                    backoff = Duration::from_secs(1);
+                                } else {
+                                    connecting = None;
                                 }
                             }
-                            Err(RecvTimeoutError::Timeout) => {}
-                            Err(RecvTimeoutError::Disconnected) => return,
+                            let (stop, peer_change) =
+                                self.handle_command(&mut session, request, reply);
+                            if peer_change {
+                                dirty = true;
+                            }
+                            if stop {
+                                return;
+                            }
                         }
-                        backoff = (backoff * 2).min(MAX_BACKOFF);
+                        Err(RecvTimeoutError::Timeout) => {}
+                        Err(RecvTimeoutError::Disconnected) => return,
                     }
-                },
+                }
                 Some(active) => match active.poll(POLL_EVERY) {
                     Ok(notifications) => {
                         let mut applied = false;
@@ -182,8 +245,9 @@ impl Worker {
                         }
                     }
                     Err(error) => {
-                        eprintln!("m4d: link lost: {error}");
+                        m4d_log!("m4d: link lost: {error}");
                         session = None;
+                        reconnect_at = Some(Instant::now() + LINK_LOSS_RETRY_DELAY);
                         self.disconnect(&error.to_string());
                     }
                 },
@@ -203,7 +267,9 @@ impl Worker {
         }
         let peer_change = matches!(
             request,
-            Request::ConnectPeer { .. } | Request::DisconnectPeer { .. }
+            Request::ConnectPeer { .. }
+                | Request::DisconnectPeer { .. }
+                | Request::HeadsetConnect { .. }
         );
         let optimistic = request.clone();
         let response = self.answer(session, request);
@@ -227,6 +293,15 @@ impl Worker {
             Request::Audio { set_profile } => {
                 audio_state(set_profile, self.snapshot().address.as_deref())
             }
+            Request::HeadsetConnect { connect } => match headset_connection(connect) {
+                Ok(()) => {
+                    if !connect {
+                        *session = None;
+                    }
+                    Response::Ok
+                }
+                Err(message) => Response::Error { message },
+            },
             other => match session.as_mut() {
                 Some(active) => self.apply(active, other),
                 None => Response::Error {
@@ -265,8 +340,7 @@ impl Worker {
                     None
                 }
                 Request::Transparency { level } => {
-                    // Adaptive and Off both make the headset ignore the level, so
-                    // moving the slider implies custom mode (same as the phone app).
+                    // Transparency changes imply custom mode.
                     let cached = self.snapshot();
                     if m4::transparency_needs_custom(&cached.info) {
                         session.set_anc_mode(3, 0)?;
@@ -299,6 +373,7 @@ impl Worker {
                 | Request::Watch
                 | Request::Shutdown
                 | Request::Audio { .. }
+                | Request::HeadsetConnect { .. }
                 | Request::Preset { .. } => None,
             })
         })();
@@ -312,8 +387,6 @@ impl Worker {
         }
     }
 
-    /// Reflects a successful write in the cache right away: the headset's own
-    /// notification follows within ~25 ms and corrects us if it disagrees.
     fn apply_local(&self, request: &Request) {
         let Ok(mut status) = self.state.write() else {
             return;
@@ -347,6 +420,15 @@ impl Worker {
                     info.eq_gains_db = preset.gains_db.to_vec();
                     info.audio_mode = Some("user EQ".to_owned());
                 }
+            }
+            Request::HeadsetConnect { connect } => {
+                status.connected = false;
+                status.channel = None;
+                status.error = Some(if *connect {
+                    "connecting to MOMENTUM 4".to_owned()
+                } else {
+                    "headset disconnected".to_owned()
+                });
             }
             _ => return,
         }
@@ -421,7 +503,7 @@ fn interval_from_env(name: &str, default: Duration) -> Duration {
     match parse_interval(&value) {
         Some(interval) => interval,
         None => {
-            eprintln!("m4d: {name} expects positive seconds, got {value:?}; using {default:?}");
+            m4d_log!("m4d: {name} expects positive seconds, got {value:?}; using {default:?}");
             default
         }
     }
@@ -434,6 +516,7 @@ fn parse_interval(value: &str) -> Option<Duration> {
         .filter(|duration| !duration.is_zero())
 }
 
+#[cfg(target_os = "linux")]
 fn read_audio(address: Option<&str>) -> Option<ipc::AudioState> {
     let card = audio::headset_for(address).ok().flatten()?;
     let sink = card.sink.as_ref();
@@ -451,6 +534,12 @@ fn read_audio(address: Option<&str>) -> Option<ipc::AudioState> {
     })
 }
 
+#[cfg(not(target_os = "linux"))]
+fn read_audio(_address: Option<&str>) -> Option<ipc::AudioState> {
+    None
+}
+
+#[cfg(target_os = "linux")]
 fn audio_state(set_profile: Option<String>, address: Option<&str>) -> Response {
     let Some(card) = audio::headset_for(address).ok().flatten() else {
         return Response::Error {
@@ -487,6 +576,13 @@ fn audio_state(set_profile: Option<String>, address: Option<&str>) -> Response {
     }
 }
 
+#[cfg(not(target_os = "linux"))]
+fn audio_state(_set_profile: Option<String>, _address: Option<&str>) -> Response {
+    Response::Error {
+        message: "audio profiles are managed by macOS; codec and sample rate are available in `m4 status`".to_owned(),
+    }
+}
+
 fn set_anc(session: &mut Session, mode: AncMode) -> Result<(), m4::Error> {
     // Order matters: the headset ignores ANC_Transparency while adaptive is on.
     match mode {
@@ -505,21 +601,31 @@ fn set_anc(session: &mut Session, mode: AncMode) -> Result<(), m4::Error> {
     }
 }
 
-#[cfg(not(target_os = "linux"))]
-fn connect() -> Result<Session, String> {
-    Err("no GAIA transport on this platform yet (Linux only for now)".to_owned())
+#[cfg(target_os = "macos")]
+fn headset_connection(connect: bool) -> Result<(), String> {
+    rfcomm::discovery::set_headset_connected(connect).map_err(|error| error.to_string())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(not(target_os = "macos"))]
+fn headset_connection(_connect: bool) -> Result<(), String> {
+    Err("system headset connection control is currently macOS-only".to_owned())
+}
+
+#[cfg(any(target_os = "linux", target_os = "macos"))]
 fn connect() -> Result<Session, String> {
-    let device = rfcomm::bluez::find_headset()
+    let device = rfcomm::discovery::find_headset()
         .map_err(|error| error.to_string())?
-        .ok_or("no MOMENTUM 4 known to BlueZ")?;
+        .ok_or("no paired MOMENTUM 4 found")?;
     if !device.connected {
         return Err(format!("{} is not connected", device.name));
     }
     let address = m4::parse_address(&device.address)?;
     Session::open_resolved(address, m4::DEFAULT_TIMEOUT).map_err(|error| error.to_string())
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+fn connect() -> Result<Session, String> {
+    Err("no GAIA transport on this platform".to_owned())
 }
 
 #[cfg(test)]
@@ -605,7 +711,7 @@ mod tests {
         });
 
         let deadline = Instant::now() + Duration::from_secs(1);
-        while state.read().unwrap().error.is_none() {
+        while state.read().unwrap().error.as_deref() != Some("test headset is offline") {
             assert!(Instant::now() < deadline, "worker never tried to connect");
             std::thread::sleep(Duration::from_millis(5));
         }
@@ -627,6 +733,55 @@ mod tests {
             }
             other => panic!("unexpected response: {other:?}"),
         }
+
+        let (reply, response) = std::sync::mpsc::channel();
+        commands
+            .send(Command::Request {
+                request: Request::Shutdown,
+                reply,
+            })
+            .unwrap();
+        assert_eq!(
+            response.recv_timeout(Duration::from_millis(250)).unwrap(),
+            Response::Ok
+        );
+        handle.join().unwrap();
+    }
+
+    #[test]
+    fn slow_connect_does_not_block_commands() {
+        let (commands, rx) = std::sync::mpsc::channel();
+        let state = Arc::new(RwLock::new(Status::default()));
+        let subscribers = Arc::new(Mutex::new(Vec::new()));
+        let worker_state = Arc::clone(&state);
+        let handle = std::thread::spawn(move || {
+            Worker {
+                rx,
+                state: worker_state,
+                subscribers,
+            }
+            .run_with_connect(|| {
+                std::thread::sleep(Duration::from_secs(2));
+                Err("slow test connect failed".to_owned())
+            });
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while state.read().unwrap().error.is_none() {
+            assert!(Instant::now() < deadline, "worker never started connecting");
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let (reply, response) = std::sync::mpsc::channel();
+        let started = Instant::now();
+        commands
+            .send(Command::Request {
+                request: Request::Status,
+                reply,
+            })
+            .unwrap();
+        let status = response.recv_timeout(Duration::from_millis(250)).unwrap();
+        assert!(started.elapsed() < Duration::from_millis(250));
+        assert!(matches!(status, Response::Status(_)));
 
         let (reply, response) = std::sync::mpsc::channel();
         commands
