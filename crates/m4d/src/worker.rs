@@ -54,7 +54,7 @@ impl Worker {
         if std::env::var_os("M4D_OFFLINE").is_some() {
             self.run_with_connect(|| Err("transport disabled".to_owned()));
         } else {
-            self.run_with_connect(connect);
+            self.run_with_connection_probe(connect, headset_connection, system_headset_connected);
         }
     }
 
@@ -62,7 +62,11 @@ impl Worker {
     where
         F: Fn() -> Result<Session, String> + Send + Sync + 'static,
     {
-        self.run_with_connection_probe(try_connect, headset_connection, system_headset_connected);
+        self.run_with_connection_probe(
+            move |_| try_connect(),
+            headset_connection,
+            system_headset_connected,
+        );
     }
 
     #[cfg(test)]
@@ -71,7 +75,7 @@ impl Worker {
         F: Fn() -> Result<Session, String> + Send + Sync + 'static,
         C: Fn(bool) -> Result<(), String>,
     {
-        self.run_with_connection_probe(try_connect, headset_control, || Ok(true));
+        self.run_with_connection_probe(move |_| try_connect(), headset_control, || Ok(true));
     }
 
     fn run_with_connection_probe<F, C, P>(
@@ -80,7 +84,7 @@ impl Worker {
         headset_control: C,
         system_connected: P,
     ) where
-        F: Fn() -> Result<Session, String> + Send + Sync + 'static,
+        F: Fn(bool) -> Result<Session, String> + Send + Sync + 'static,
         C: Fn(bool) -> Result<(), String>,
         P: Fn() -> Result<bool, String>,
     {
@@ -96,6 +100,10 @@ impl Worker {
         let mut last_audio = now.checked_sub(audio_every).unwrap_or(now);
         let mut last_track = now.checked_sub(track_every).unwrap_or(now);
         let mut last_system_connection = now.checked_sub(SYSTEM_CONNECTION_EVERY).unwrap_or(now);
+        let mut system_was_connected = None;
+        let mut retry_after_pending_connect = false;
+        let mut workaround_pending = false;
+        let mut workaround_in_progress = false;
         let mut dirty = false;
 
         loop {
@@ -104,6 +112,7 @@ impl Worker {
                 let (should_stop, peer_change, connection_change) =
                     self.handle_command(&mut session, request, reply, &headset_control);
                 if let Some(connect) = connection_change {
+                    system_was_connected = Some(connect);
                     reconnect_at = (!connect).then(|| Instant::now() + LINK_LOSS_RETRY_DELAY);
                     if connect {
                         backoff = Duration::from_secs(1);
@@ -123,14 +132,31 @@ impl Worker {
                 return;
             }
 
-            if session.is_some() && last_system_connection.elapsed() >= SYSTEM_CONNECTION_EVERY {
+            let connection_check_every = if session.is_some() {
+                SYSTEM_CONNECTION_EVERY
+            } else {
+                Duration::from_millis(250)
+            };
+            if last_system_connection.elapsed() >= connection_check_every {
                 last_system_connection = Instant::now();
-                if matches!(system_connected(), Ok(false)) {
-                    m4d_log!("m4d: system Bluetooth disconnected");
-                    session = None;
-                    reconnect_at = Some(Instant::now() + LINK_LOSS_RETRY_DELAY);
-                    self.disconnect("system Bluetooth disconnected");
-                    continue;
+                if let Ok(connected) = system_connected() {
+                    if connected && system_was_connected == Some(false) {
+                        if !workaround_in_progress {
+                            workaround_pending = true;
+                        }
+                        reconnect_at = None;
+                        retry_after_pending_connect = connecting.is_some();
+                        backoff = Duration::from_secs(1);
+                        m4d_log!("m4d: system Bluetooth connected; bypassing reconnect backoff");
+                    }
+                    system_was_connected = Some(connected);
+                    if !connected && session.is_some() {
+                        m4d_log!("m4d: system Bluetooth disconnected");
+                        session = None;
+                        reconnect_at = Some(Instant::now() + LINK_LOSS_RETRY_DELAY);
+                        self.disconnect("system Bluetooth disconnected");
+                        continue;
+                    }
                 }
             }
 
@@ -142,8 +168,10 @@ impl Worker {
                         self.set_error("connecting to MOMENTUM 4");
                         let (sender, receiver) = std::sync::mpsc::channel();
                         let connect = Arc::clone(&try_connect);
+                        let workaround = std::mem::take(&mut workaround_pending);
+                        workaround_in_progress = workaround;
                         std::thread::spawn(move || {
-                            let _ = sender.send(connect());
+                            let _ = sender.send(connect(workaround));
                         });
                         connecting = Some(receiver);
                         reconnect_at = None;
@@ -160,8 +188,15 @@ impl Worker {
                             });
                     if let Some(outcome) = outcome {
                         connecting = None;
+                        workaround_in_progress = false;
                         match outcome {
                             Ok(mut fresh) => {
+                                if workaround_pending {
+                                    drop(fresh);
+                                    reconnect_at = None;
+                                    continue;
+                                }
+                                retry_after_pending_connect = false;
                                 let _ = fresh.subscribe(&SUBSCRIBED_FEATURES);
                                 let info = Info::read(&mut fresh);
                                 let channel = fresh.channel;
@@ -185,7 +220,12 @@ impl Worker {
                             Err(reason) => {
                                 m4d_log!("m4d: {reason}");
                                 self.set_error(&reason);
-                                reconnect_at = Some(Instant::now() + backoff);
+                                reconnect_at = if retry_after_pending_connect {
+                                    retry_after_pending_connect = false;
+                                    None
+                                } else {
+                                    Some(Instant::now() + backoff)
+                                };
                                 backoff = (backoff * 2).min(MAX_BACKOFF);
                             }
                         }
@@ -195,6 +235,7 @@ impl Worker {
                             let (stop, peer_change, connection_change) =
                                 self.handle_command(&mut session, request, reply, &headset_control);
                             if let Some(connect) = connection_change {
+                                system_was_connected = Some(connect);
                                 reconnect_at =
                                     (!connect).then(|| Instant::now() + LINK_LOSS_RETRY_DELAY);
                                 if connect {
@@ -535,22 +576,12 @@ fn validate_peer(status: &Status, request: &Request) -> Result<(), String> {
         Request::ConnectPeer { index } | Request::DisconnectPeer { index } => *index,
         _ => return Ok(()),
     };
-    let Some(device) = status.info.paired.iter().find(|peer| peer.index == index) else {
+    if !status.info.paired.iter().any(|peer| peer.index == index) {
         return Err(format!(
             "paired device index {index} is not in the current snapshot"
         ));
-    };
-    let connected = status
-        .info
-        .paired
-        .iter()
-        .filter(|peer| peer.connected)
-        .count();
-    if matches!(request, Request::ConnectPeer { .. }) && !device.connected && connected >= 2 {
-        return Err(
-            "both multipoint slots are occupied; disconnect a connected host first".to_owned(),
-        );
     }
+    // Connection flags can lag behind disconnect; the headset enforces its slot limit.
     Ok(())
 }
 
@@ -683,7 +714,9 @@ fn system_headset_connected() -> Result<bool, String> {
 }
 
 #[cfg(any(target_os = "linux", target_os = "macos"))]
-fn connect() -> Result<Session, String> {
+fn connect(workaround: bool) -> Result<Session, String> {
+    #[cfg(not(target_os = "linux"))]
+    let _ = workaround;
     let device = rfcomm::discovery::find_headset()
         .map_err(|error| error.to_string())?
         .ok_or("no paired MOMENTUM 4 found")?;
@@ -691,17 +724,74 @@ fn connect() -> Result<Session, String> {
         return Err(format!("{} is not connected", device.name));
     }
     let address = m4::parse_address(&device.address)?;
-    Session::open_resolved(address, m4::DEFAULT_TIMEOUT).map_err(|error| error.to_string())
+    let mut session =
+        Session::open_resolved(address, m4::DEFAULT_TIMEOUT).map_err(|error| error.to_string())?;
+    #[cfg(target_os = "linux")]
+    {
+        let firmware = session.firmware().map_err(|error| error.to_string())?;
+        if workaround && firmware.to_string() == "3.38.3" {
+            // See BUG_REPORT.md: normalize each externally established Linux connection once.
+            m4d_log!("m4d: multipoint workaround: reconnecting Linux through BlueZ");
+            drop(session);
+            headset_connection(false)?;
+            // Let BlueZ/headset finish tearing down AVDTP before starting new profiles.
+            std::thread::sleep(Duration::from_secs(2));
+            headset_connection(true)?;
+            session = Session::open_resolved(address, m4::DEFAULT_TIMEOUT)
+                .map_err(|error| error.to_string())?;
+            session.firmware().map_err(|error| error.to_string())?;
+        }
+    }
+    Ok(session)
 }
 
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
-fn connect() -> Result<Session, String> {
+fn connect(_workaround: bool) -> Result<Session, String> {
     Err("no GAIA transport on this platform".to_owned())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn new_system_connection_retries_immediately_with_workaround() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+        let (commands, rx) = std::sync::mpsc::channel();
+        let connected = Arc::new(AtomicBool::new(false));
+        let worker_connected = Arc::clone(&connected);
+        let (attempted, attempts) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            Worker {
+                rx,
+                state: Arc::new(RwLock::new(Status::default())),
+                subscribers: Arc::default(),
+            }
+            .run_with_connection_probe(
+                move |workaround| {
+                    attempted.send(workaround).unwrap();
+                    Err("not ready".to_owned())
+                },
+                |_| Ok(()),
+                move || Ok(worker_connected.load(Ordering::SeqCst)),
+            );
+        });
+        attempts.recv_timeout(Duration::from_secs(1)).unwrap();
+        attempts.recv_timeout(Duration::from_secs(2)).unwrap();
+        // The second failed attempt schedules a two-second backoff.
+        connected.store(true, Ordering::SeqCst);
+        let resumed = attempts.recv_timeout(Duration::from_secs(1));
+        let (reply, response) = std::sync::mpsc::channel();
+        commands
+            .send(Command::Request {
+                request: Request::Shutdown,
+                reply,
+            })
+            .unwrap();
+        response.recv_timeout(Duration::from_secs(1)).unwrap();
+        handle.join().unwrap();
+        assert!(resumed.expect("new Bluetooth connection must bypass the two-second backoff"));
+    }
 
     #[test]
     fn polling_intervals_accept_positive_seconds() {
@@ -731,7 +821,7 @@ mod tests {
     }
 
     #[test]
-    fn connect_peer_rejects_a_third_active_host() {
+    fn connect_peer_does_not_reject_based_on_stale_connection_flags() {
         let mut status = Status::default();
         for (index, connected) in [(0, true), (1, true), (2, false)] {
             status.info.paired.push(m4::PairedEntry {
@@ -742,9 +832,7 @@ mod tests {
             });
         }
 
-        let error = validate_peer(&status, &Request::ConnectPeer { index: 2 })
-            .expect_err("third active host must be rejected");
-        assert!(error.contains("both multipoint slots"));
+        assert!(validate_peer(&status, &Request::ConnectPeer { index: 2 }).is_ok());
         assert!(validate_peer(&status, &Request::DisconnectPeer { index: 0 }).is_ok());
         assert!(validate_peer(&status, &Request::ConnectPeer { index: 0 }).is_ok());
     }
@@ -954,7 +1042,7 @@ mod tests {
                 subscribers,
             }
             .run_with_connection_probe(
-                || Ok(Session::from_transport(Box::new(IdleTransport), 1)),
+                |_| Ok(Session::from_transport(Box::new(IdleTransport), 1)),
                 |_| Ok(()),
                 move || Ok(worker_connected.load(std::sync::atomic::Ordering::SeqCst)),
             );
