@@ -148,8 +148,12 @@ impl Link {
                     continue;
                 }
                 if err.kind() == io::ErrorKind::WouldBlock {
-                    if !self.wait(libc::POLLOUT, Duration::from_secs(2))? {
+                    let events = self.wait(libc::POLLOUT, Duration::from_secs(2))?;
+                    if events == 0 {
                         return Err(io::Error::new(io::ErrorKind::TimedOut, "send timed out"));
+                    }
+                    if events & (libc::POLLERR | libc::POLLHUP) != 0 {
+                        return Err(io::Error::new(io::ErrorKind::BrokenPipe, "link closed"));
                     }
                     continue;
                 }
@@ -164,8 +168,12 @@ impl Link {
         let deadline = Instant::now() + timeout;
         loop {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            if !self.wait(libc::POLLIN, remaining)? {
+            let events = self.wait(libc::POLLIN, remaining)?;
+            if events == 0 {
                 return Ok(None);
+            }
+            if events & (libc::POLLERR | libc::POLLHUP) != 0 && events & libc::POLLIN == 0 {
+                return Ok(Some(0));
             }
             // SAFETY: the buffer is valid for `buf.len()` bytes.
             let rc = unsafe {
@@ -182,6 +190,12 @@ impl Link {
                     continue;
                 }
                 if err.kind() == io::ErrorKind::WouldBlock {
+                    if events & (libc::POLLERR | libc::POLLHUP) != 0 {
+                        return Ok(Some(0));
+                    }
+                    if remaining.is_zero() {
+                        return Ok(None);
+                    }
                     continue;
                 }
                 return Err(err);
@@ -198,7 +212,7 @@ impl Link {
         )
     }
 
-    fn wait(&self, events: i16, timeout: Duration) -> io::Result<bool> {
+    fn wait(&self, events: i16, timeout: Duration) -> io::Result<i16> {
         let mut pollfd = libc::pollfd {
             fd: self.fd,
             events,
@@ -210,11 +224,11 @@ impl Link {
         if rc < 0 {
             let err = io::Error::last_os_error();
             if err.kind() == io::ErrorKind::Interrupted {
-                return Ok(false);
+                return Ok(0);
             }
             return Err(err);
         }
-        Ok(rc > 0)
+        Ok(if rc > 0 { pollfd.revents } else { 0 })
     }
 }
 
@@ -249,4 +263,40 @@ pub fn connect_any(
     Err(last.unwrap_or(Error::NoChannel {
         address: format_address(&address),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::fd::IntoRawFd;
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn zero_timeout_returns_when_the_socket_has_no_input() {
+        let (reader, _writer) = UnixStream::pair().unwrap();
+        let link = Link {
+            fd: reader.into_raw_fd(),
+        };
+        let mut buffer = [0; 16];
+
+        let started = Instant::now();
+        assert_eq!(link.recv(&mut buffer, Duration::ZERO).unwrap(), None);
+        assert!(started.elapsed() < Duration::from_millis(50));
+    }
+
+    #[test]
+    fn hangup_is_eof_even_with_zero_timeout() {
+        let (reader, writer) = UnixStream::pair().unwrap();
+        let link = Link {
+            fd: reader.into_raw_fd(),
+        };
+        drop(writer);
+        let mut buffer = [0; 16];
+
+        let events = link.wait(libc::POLLIN, Duration::ZERO).unwrap();
+        assert_ne!(events & libc::POLLHUP, 0);
+        let started = Instant::now();
+        assert_eq!(link.recv(&mut buffer, Duration::ZERO).unwrap(), Some(0));
+        assert!(started.elapsed() < Duration::from_millis(50));
+    }
 }
